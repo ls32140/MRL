@@ -36,8 +36,9 @@ class cross_modal_dataset(data.Dataset):
             valid_len = 5000
         elif 'inria' in dataset.lower():
             root_dir = os.path.join(root_dir, 'INRIA-Websearch')
-            path = os.path.join(root_dir, 'INRIA-Websearch.mat')
+            path = os.path.join(root_dir, 'inria7.mat')
             doc2vec = False
+            valid_len = 1332
         elif 'xmedianet4view' in dataset.lower():
             root_dir = os.path.join(root_dir, 'XMediaNet4View')
             path = os.path.join(root_dir, 'XMediaNet4View_pairs.mat')
@@ -118,14 +119,19 @@ class cross_modal_dataset(data.Dataset):
                     raise Exception('Have no such set mode!')
             else:
                 if self.mode == 'train':
-                    train_data = [data['tr_img'].astype('float32'), data['tr_txt'].astype('float32')]
-                    train_label = [data['tr_img_lab'].reshape([-1]).astype('int64'), data['tr_txt_lab'].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_fc6'][valid_len:].astype('float32'),
+                                  data['tr_text'][valid_len:].astype('float32')]
+                    train_label = [data['tr_label'][valid_len:].reshape([-1]).astype('int64'),
+                                   data['tr_label'][valid_len:].reshape([-1]).astype('int64')]
                 elif self.mode == 'valid':
-                    train_data = [data['val_img'].astype('float32'), data['val_txt'].astype('float32')]
-                    train_label = [data['val_img_lab'].reshape([-1]).astype('int64'), data['val_txt_lab'].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_fc6'][0: valid_len].astype('float32'),
+                                  data['tr_text'][0: valid_len].astype('float32')]
+                    train_label = [data['tr_label'][0: valid_len].reshape([-1]).astype('int64'),
+                                   data['tr_label'][0: valid_len].reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
-                    train_data = [data['te_img'].astype('float32'), data['te_txt'].astype('float32')]
-                    train_label = [data['te_img_lab'].reshape([-1]).astype('int64'), data['te_txt_lab'].reshape([-1]).astype('int64')]
+                    train_data = [data['te_fc6'].astype('float32'), data['te_text'].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                                   data['te_label'].reshape([-1]).astype('int64')]
                 else:
                     raise Exception('Have no such set mode!')
 
@@ -167,7 +173,7 @@ class cross_modal_dataset(data.Dataset):
                     for i in range(data_num):
                         if i in noise_idx:
                             if noise_mode == 'sym':
-                                noiselabel = int(random.randint(0, class_num))
+                                noiselabel = int(random.randint(0, class_num-1))
                                 noise_label_tmp.append(noiselabel)
                             elif noise_mode == 'asym':
                                 noiselabel = self.transition[train_label[v][i]]
