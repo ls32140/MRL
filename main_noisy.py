@@ -16,6 +16,8 @@ cudnn.benchmark = True
 import nets as models
 from utils.bar_show import progress_bar
 from src.noisydataset import cross_modal_dataset
+from src.smoothCE import smoothCE
+from src.SCELoss import SCELoss
 import src.utils as utils
 import scipy
 import scipy.spatial
@@ -92,7 +94,7 @@ def main():
     embedding = torch.eye(train_dataset.class_num).cuda()
     embedding.requires_grad = False
 
-    aum_calculator = AUMCalculator(save_dir, compressed=False)
+    # aum_calculator = AUMCalculator(save_dir, compressed=False)
 
     parameters = []
     for v in range(n_view):
@@ -113,9 +115,16 @@ def main():
     else:
         raise Exception('No such loss function.')
 
-    ce_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
-
     summary_writer = SummaryWriter(args.log_dir)
+
+    ce_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
+    s_CE = smoothCE(0.1, 10, 1)
+    SCE = SCELoss()
+    def entropyLoss(a,tar):
+        logsoftmax = torch.nn.LogSoftmax(dim=1)
+        res = -tar * logsoftmax(a)
+        return torch.mean(torch.sum(res, dim=1))
+
 
     if args.resume:
         ckpt = torch.load(os.path.join(args.ckpt_dir, args.resume))
@@ -182,10 +191,6 @@ def main():
         res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
         return torch.sum(res, dim=1)
 
-    def entropyLoss(a,tar):
-        logsoftmax = torch.nn.LogSoftmax(dim=1)
-        res = -tar * logsoftmax(a)
-        return torch.mean(torch.sum(res, dim=1))
     def similarityLoss(p):
         q = [distributed_sinkhorn(p[v]) for v in range(n_view)]
         intra = [entropyLoss(q[v], p[v]) for v in range(n_view)]
@@ -259,27 +264,31 @@ def main():
             #     aum_calculator.finalize()
 
 
-            gmmLoss = [gmm_loss(outputs[v],preds[v]) for v in range(n_view)]
-            losses = [torch.mean(gmm_loss(outputs[v],preds[v])) for v in range(n_view)]
-            aa = torch.stack(gmmLoss).reshape(1, -1).squeeze()
-            contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            s_CE_loss = [s_CE(preds[v], targets[v]) for v in range(n_view)]
+            losses = [torch.mean(s_CE(preds[v], targets[v])) for v in range(n_view)]
+            aa = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
+            # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             loss_all = (args.beta * aa + (1. - args.beta) * contrastiveLoss).cpu()
             loss = torch.mean(loss_all)
 
-            entropy_loss = [ce_no_mean(preds[v], targets[v]) for v in range(n_view)]
-            ppp = torch.stack(entropy_loss).reshape(1, -1).squeeze().cpu()
+            # entropy_loss = [ce_no_mean(preds[v], targets[v]) for v in range(n_view)]
+            # ppp = torch.stack(s_CE_loss).reshape(1, -1).squeeze().cpu()
+            ppp = loss_all
             ind_sorted = np.argsort(ppp.data)
             loss_sorted = ppp[ind_sorted]
-            if epoch > 5:
-                remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
-            else:
-                remember_rate = 1
+            # if epoch > 5:
+            #     remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
+            # else:
+            #     remember_rate = 1
+
             reset_rate = min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
             num_reset = int(reset_rate * len(loss_sorted))
-            min_value = loss_sorted[-num_reset:(-num_reset + 1)].sum(0)
-
-            need_update = (torch.stack(entropy_loss).cpu() >= min_value).tolist()
+            if epoch > 15:
+                min_value = loss_sorted[-num_reset:(-num_reset + 1)].sum(0)
+            else: min_value = 100000
+            # min_value = loss_sorted[-num_reset:(-num_reset + 1)].sum(0)
+            need_update = (loss_all.reshape(2, -1).cpu() >= min_value).tolist()
             for v in range(n_view):
                 ss = index[need_update[v]]
                 up_idx[v] = torch.cat([up_idx[v], ss], dim=0)
