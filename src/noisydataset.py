@@ -31,12 +31,12 @@ class cross_modal_dataset(data.Dataset):
             path = os.path.join(root_dir, 'wiki_deep_doc2vec_data_corr_ae.h5py')  # wiki_deep_doc2vec_data
             valid_len = 231
         elif 'nus' in dataset.lower():
-            root_dir = os.path.join(root_dir, 'NUS-WIDE')
+            root_dir = os.path.join(root_dir, 'NUS-WIDE-TC10')
             path = os.path.join(root_dir, 'nus_wide_deep_doc2vec_data_42941.h5py')
             valid_len = 5000
         elif 'inria' in dataset.lower():
             root_dir = os.path.join(root_dir, 'INRIA-Websearch')
-            path = os.path.join(root_dir, 'inria7.mat')
+            path = os.path.join(root_dir, 'inria.mat')
             doc2vec = False
             valid_len = 1332
         elif 'xmedianet4view' in dataset.lower():
@@ -119,21 +119,17 @@ class cross_modal_dataset(data.Dataset):
                     raise Exception('Have no such set mode!')
             else:
                 if self.mode == 'train':
-                    train_data = [data['tr_fc6'][valid_len:].astype('float32'),
-                                  data['tr_text'][valid_len:].astype('float32')]
-                    train_label = [data['tr_label'][valid_len:].reshape([-1]).astype('int64'),
-                                   data['tr_label'][valid_len:].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_fc6'][valid_len:].astype('float32'), data['tr_text'][valid_len:].astype('float32')]
+                    train_label = [data['tr_label'][valid_len:].reshape([-1]).astype('int64'), data['tr_label'][valid_len:].reshape([-1]).astype('int64')]
                 elif self.mode == 'valid':
-                    train_data = [data['tr_fc6'][0: valid_len].astype('float32'),
-                                  data['tr_text'][0: valid_len].astype('float32')]
-                    train_label = [data['tr_label'][0: valid_len].reshape([-1]).astype('int64'),
-                                   data['tr_label'][0: valid_len].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_fc6'][0: valid_len].astype('float32'), data['tr_text'][0: valid_len].astype('float32')]
+                    train_label = [data['tr_label'][0: valid_len].reshape([-1]).astype('int64'), data['tr_label'][0: valid_len].reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
                     train_data = [data['te_fc6'].astype('float32'), data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'), data['te_label'].reshape([-1]).astype('int64')]
                 else:
                     raise Exception('Have no such set mode!')
+
 
         # if 'wiki' in dataset.lower() or 'nus' in dataset.lower():
         #     self.transition = {0: 0, 2: 0, 4: 7, 7: 7, 1: 1, 9: 1, 3: 5, 5: 3, 6: 6, 8: 8}
@@ -193,6 +189,11 @@ class cross_modal_dataset(data.Dataset):
         else:
             self.prob = None
 
+    def reset1(self, pred, idx):
+        n_view = len(self.train_data)
+        for v in range(n_view):
+            id = idx[v]
+            self.noise_label[v][id] = pred[v].argmax(1)[id]
     def reset(self, pred, prob, mode='labeled'):
         if pred is None:
             self.prob = None

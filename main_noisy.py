@@ -2,12 +2,14 @@ import numpy as np
 import os
 import torch
 
+
 # import numpy as np
 # import os
 # # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 # import torch
 from utils.config import args
 import torch.optim as optim
+import torch.distributed as dist
 import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 cudnn.benchmark = True
@@ -17,8 +19,11 @@ from src.noisydataset import cross_modal_dataset
 import src.utils as utils
 import scipy
 import scipy.spatial
+import numpy.ma as ma
+from sklearn.mixture import GaussianMixture as GMM
+from aum import AUMCalculator
 
-
+save_dir = 'aum'
 best_acc = 0  # best test accuracy
 start_epoch = 0
 
@@ -81,13 +86,15 @@ def main():
             multi_models.append(models.__dict__['ImageNet'](input_dim=train_dataset.train_data[v].shape[1], output_dim=args.output_dim).cuda())
 
     C = torch.Tensor(args.output_dim, args.output_dim)
-    C = torch.nn.init.orthogonal(C, gain=1)[:, 0: train_dataset.class_num].cuda()
-    C.requires_grad = True
+    C = torch.nn.init.orthogonal(C, gain=1)[:, 0: train_dataset.class_num]
+    C.requires_grad = False
 
     embedding = torch.eye(train_dataset.class_num).cuda()
     embedding.requires_grad = False
 
-    parameters = [C]
+    aum_calculator = AUMCalculator(save_dir, compressed=False)
+
+    parameters = []
     for v in range(n_view):
         parameters += list(multi_models[v].parameters())
     if args.optimizer == 'SGD':
@@ -105,6 +112,8 @@ def main():
         criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
     else:
         raise Exception('No such loss function.')
+
+    ce_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
 
     summary_writer = SummaryWriter(args.log_dir)
 
@@ -127,22 +136,87 @@ def main():
         for v in range(n_view):
             multi_models[v].eval()
 
-    def cross_modal_contrastive_ctriterion(fea, tau=1.):
+    def contrastive(fea, tar, tau=1.):
+        loss = []
+        for v in range(n_view):
+            sim = fea[v].mm(fea[v].t())
+            sim = (sim / tau).exp()
+            dif = tar[v]-tar[v].reshape(-1, 1)
+            condition1 = dif == 0
+            condition2 = dif != 0
+            masked_sim1 = torch.masked_fill(sim, condition1, value=0)  # 不同类
+            masked_sim2 = torch.masked_fill(sim, condition2, value=0) # 同类
+            top_value, top_i = torch.topk(masked_sim2, 1)
+            select_sim = (top_value.sum()).reshape(1, -1).squeeze()
+            loss.append(-(select_sim / masked_sim1.sum(1)).log().mean())
+        return loss[0] + loss[1]
+    def cross_modal_contrastive_ctriterion(fea, tar, tau=1.):
         batch_size = fea[0].shape[0]
         all_fea = torch.cat(fea)
         sim = all_fea.mm(all_fea.t())
-
         sim = (sim / tau).exp()
         sim = sim - sim.diag().diag()
+
+        all_targets = torch.cat(tar)
+        re_targets = all_targets.reshape((-1, 1))
+        dif = all_targets - re_targets
+        condition1 = dif == 0
+        masked_sim1 = torch.masked_fill(sim, condition1, value=0) #不同类别
+
+        # m_sim = [sim[v * batch_size: (v + 1) * batch_size, v * batch_size: (v + 1) * batch_size] for v in range(n_view)]
+        # m_sim_sum = torch.cat(m_sim).sum(1)
+        # neg_sim = masked_sim.sum(1) - m_sim_sum
+
         sim_sum1 = sum([sim[:, v * batch_size: (v + 1) * batch_size] for v in range(n_view)])
         diag1 = torch.cat([sim_sum1[v * batch_size: (v + 1) * batch_size].diag() for v in range(n_view)])
-        loss1 = -(diag1 / sim.sum(1)).log().mean()
-
+        loss1 = -(diag1 / masked_sim1.sum(1)).log().mean()
         sim_sum2 = sum([sim[v * batch_size: (v + 1) * batch_size] for v in range(n_view)])
         diag2 = torch.cat([sim_sum2[:, v * batch_size: (v + 1) * batch_size].diag() for v in range(n_view)])
-        loss2 = -(diag2 / sim.sum(1)).log().mean()
+        loss2 = -(diag2 / masked_sim1.sum(1)).log().mean()
         return loss1 + loss2
+    def gmm_loss(x, pred):
+        xx = x.cpu().detach().numpy()
+        gmm = GMM(n_components=train_dataset.class_num, max_iter=10, tol=1e-2, reg_covar=5e-4).fit(xx)
+        probs = gmm.predict_proba(xx)
+        logsoftmax = torch.nn.LogSoftmax(dim=1)
+        res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
+        return torch.sum(res, dim=1)
 
+    def entropyLoss(a,tar):
+        logsoftmax = torch.nn.LogSoftmax(dim=1)
+        res = -tar * logsoftmax(a)
+        return torch.mean(torch.sum(res, dim=1))
+    def similarityLoss(p):
+        q = [distributed_sinkhorn(p[v]) for v in range(n_view)]
+        intra = [entropyLoss(q[v], p[v]) for v in range(n_view)]
+        inter = [entropyLoss(q[0], p[1]), entropyLoss(q[1], p[0])]
+        out = [0.01*intra[v]+inter[v] for v in range(n_view)]
+        return sum(out)
+
+    def distributed_sinkhorn(out):
+        Q = torch.exp(out / 0.05).t()  # Q is K-by-B for consistency with notations from our paper
+        B = Q.shape[1]  # number of samples to assign
+        K = Q.shape[0]  # how many prototypes
+
+        # make the matrix sums to 1
+        sum_Q = torch.sum(Q)
+        Q = Q / sum_Q
+
+        for it in range(3):
+            # normalize each row: total weight per prototype must be 1/K
+            sum_of_rows = torch.sum(Q, dim=1, keepdim=True)
+            Q = Q / sum_of_rows
+            Q = Q / K
+
+            # normalize each column: total weight per sample must be 1/B
+            Q = Q / torch.sum(Q, dim=0, keepdim=True)
+            Q = Q / B
+
+        Q = Q * B  # the colomns must sum to 1 so that Q is an assignment
+        return Q.t()
+
+    result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
+    up_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
@@ -150,18 +224,65 @@ def main():
 
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
+            index = index
             norm = C.norm(dim=0, keepdim=True)
             C.data = (C / norm).detach()
 
             for v in range(n_view):
                 multi_models[v].zero_grad()
             optimizer.zero_grad()
-
             outputs = [multi_models[v](batches[v]) for v in range(n_view)]
+
+            c = list()
+            for cla in range(train_dataset.class_num):
+                select_list = list()
+                for v in range(n_view):
+                    idx = torch.nonzero(targets[v] == cla).ravel()
+                    select_list.append(torch.index_select(outputs[v], dim=0, index=idx))
+                selects = torch.cat(select_list)
+                if (len(selects)):
+                    val = (torch.sum(selects, dim=0) / len(selects))
+                else:
+                    val = C[..., cla].cuda().t()
+                c.append(val)
+            t = torch.stack(c)
+            C.data = t.t()
+
             preds = [outputs[v].mm(C) for v in range(n_view)]
-            losses = [criterion(preds[v], targets[v]) for v in range(n_view)]
-            loss = sum(losses)
-            loss = args.beta * loss + (1. - args.beta) * cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
+            for v in range(n_view):
+                result[v][index] = preds[v].cpu().detach().numpy()
+            # for v in range(n_view):
+            #     if v == 0:
+            #         aum_calculator.update(preds[v], targets[v], index)
+            #     else: aum_calculator.update(preds[v], targets[v], index+100)
+            # if(epoch == 1):
+            #     aum_calculator.finalize()
+
+
+            gmmLoss = [gmm_loss(outputs[v],preds[v]) for v in range(n_view)]
+            losses = [torch.mean(gmm_loss(outputs[v],preds[v])) for v in range(n_view)]
+            aa = torch.stack(gmmLoss).reshape(1, -1).squeeze()
+            contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            loss_all = (args.beta * aa + (1. - args.beta) * contrastiveLoss).cpu()
+            loss = torch.mean(loss_all)
+
+            entropy_loss = [ce_no_mean(preds[v], targets[v]) for v in range(n_view)]
+            ppp = torch.stack(entropy_loss).reshape(1, -1).squeeze().cpu()
+            ind_sorted = np.argsort(ppp.data)
+            loss_sorted = ppp[ind_sorted]
+            if epoch > 5:
+                remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
+            else:
+                remember_rate = 1
+            reset_rate = min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
+            num_reset = int(reset_rate * len(loss_sorted))
+            min_value = loss_sorted[-num_reset:(-num_reset + 1)].sum(0)
+
+            need_update = (torch.stack(entropy_loss).cpu() >= min_value).tolist()
+            for v in range(n_view):
+                ss = index[need_update[v]]
+                up_idx[v] = torch.cat([up_idx[v], ss], dim=0)
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
@@ -175,6 +296,8 @@ def main():
                 correct_list[v] += acc
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f | LR: %g'
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
+
+        train_dataset.reset1(result, up_idx)
 
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
