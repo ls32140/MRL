@@ -2,7 +2,7 @@ import numpy as np
 import os
 import torch
 
-
+#c + gmm + 校正 + 对比学习
 # import numpy as np
 # import os
 # # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
