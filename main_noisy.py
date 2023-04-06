@@ -24,6 +24,7 @@ import scipy.spatial
 import numpy.ma as ma
 from sklearn.mixture import GaussianMixture as GMM
 from aum import AUMCalculator
+import torch.nn.functional as F
 
 save_dir = 'aum'
 best_acc = 0  # best test accuracy
@@ -120,9 +121,11 @@ def main():
     ce_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
     s_CE = smoothCE(0.1, 10, 1)
     SCE = SCELoss()
-    def entropyLoss(a,tar):
+    def entropyLoss(a,tar, onMean=None):
         logsoftmax = torch.nn.LogSoftmax(dim=1)
         res = -tar * logsoftmax(a)
+        if onMean is not None:
+            return torch.sum(res, dim=1)
         return torch.mean(torch.sum(res, dim=1))
 
 
@@ -191,12 +194,26 @@ def main():
         res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
         return torch.sum(res, dim=1)
 
-    def similarityLoss(p):
-        q = [distributed_sinkhorn(p[v]) for v in range(n_view)]
-        intra = [entropyLoss(q[v], p[v]) for v in range(n_view)]
-        inter = [entropyLoss(q[0], p[1]), entropyLoss(q[1], p[0])]
-        out = [0.01*intra[v]+inter[v] for v in range(n_view)]
-        return sum(out)
+    def similarityLoss(p, z, tau=1.):
+        batch_size = z[0].shape[0]
+        # q = [distributed_sinkhorn(p[v]) for v in range(n_view)]
+        all_p = torch.cat(p)
+        all_p = F.softmax(all_p, dim=1)
+        simp = all_p.mm(all_p.t())
+        simp = simp.fill_diagonal_(1)
+        all_z = torch.cat(z)
+        simz = all_z.mm(all_z.t())
+        # simz = (simz / tau).exp()
+        intra = []
+        inner = []
+        for v in range(n_view):
+            intraCELoss = entropyLoss(simz[v * batch_size: (v + 1) * batch_size, v * batch_size: (v + 1) * batch_size], simp[v * batch_size: (v + 1) * batch_size, v * batch_size: (v + 1) * batch_size], 1)
+            intra.append(intraCELoss)
+        inner.append(entropyLoss(simz[0:batch_size,batch_size:batch_size*2], simp[0:batch_size,batch_size:batch_size*2], 1))
+        inner.append(entropyLoss(simz[batch_size:batch_size*2,0:batch_size], simp[batch_size:batch_size*2,0:batch_size], 1))
+        intra = torch.cat(intra)
+        inner = torch.cat(inner)
+        return 0.1*(intra+inner)
 
     def distributed_sinkhorn(out):
         Q = torch.exp(out / 0.05).t()  # Q is K-by-B for consistency with notations from our paper
@@ -220,10 +237,11 @@ def main():
         Q = Q * B  # the colomns must sum to 1 so that Q is an assignment
         return Q.t()
 
-    result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
-    up_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
+
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
+        result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
+        up_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         set_train()
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
 
@@ -254,37 +272,33 @@ def main():
             C.data = t.t()
 
             preds = [outputs[v].mm(C) for v in range(n_view)]
-            for v in range(n_view):
-                result[v][index] = preds[v].cpu().detach().numpy()
+            # for v in range(n_view):
+            #     result[v][index] = preds[v].cpu().detach().numpy()
             # for v in range(n_view):
             #     if v == 0:
             #         aum_calculator.update(preds[v], targets[v], index)
             #     else: aum_calculator.update(preds[v], targets[v], index+100)
             # if(epoch == 1):
             #     aum_calculator.finalize()
-
-
             s_CE_loss = [s_CE(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(s_CE(preds[v], targets[v])) for v in range(n_view)]
             aa = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            loss_all = (args.beta * aa + (1. - args.beta) * contrastiveLoss).cpu()
-            loss = torch.mean(loss_all)
-
-            # entropy_loss = [ce_no_mean(preds[v], targets[v]) for v in range(n_view)]
-            # ppp = torch.stack(s_CE_loss).reshape(1, -1).squeeze().cpu()
+            # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            simLoss = similarityLoss(preds, outputs)
+            loss_all = (args.beta * aa + (1. - args.beta) * simLoss).cpu()
+            # loss = torch.mean(loss_all)
             ppp = loss_all
             ind_sorted = np.argsort(ppp.data)
             loss_sorted = ppp[ind_sorted]
-            # if epoch > 5:
-            #     remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
-            # else:
-            #     remember_rate = 1
+            # remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
+            # num_remember = int(remember_rate * len(loss_sorted))
+            # ind_update = ind_sorted[:num_remember]
+            # loss = torch.mean(ppp[ind_update])
 
             reset_rate = min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
             num_reset = int(reset_rate * len(loss_sorted))
-            if epoch > 15:
+            if epoch > 3:
                 min_value = loss_sorted[-num_reset:(-num_reset + 1)].sum(0)
             else: min_value = 100000
             # min_value = loss_sorted[-num_reset:(-num_reset + 1)].sum(0)
@@ -292,6 +306,9 @@ def main():
             for v in range(n_view):
                 ss = index[need_update[v]]
                 up_idx[v] = torch.cat([up_idx[v], ss], dim=0)
+            loss = torch.mean(loss_all)
+
+
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
@@ -433,9 +450,10 @@ def main():
             summary_writer.add_scalars('Retrieval/test', test_dict, epoch)
 
             print(print_val_str)
+            print(print_test_str)
             if val_avg > best_acc:
                 best_acc = val_avg
-                print(print_test_str)
+                # print(print_test_str)
                 print('Saving..')
                 state = {}
                 for v in range(n_view):
