@@ -31,8 +31,8 @@ class cross_modal_dataset(data.Dataset):
             path = os.path.join(root_dir, 'wiki_deep_doc2vec_data_corr_ae.h5py')  # wiki_deep_doc2vec_data
             valid_len = 231
         elif 'nus' in dataset.lower():
-            root_dir = os.path.join(root_dir, 'NUS-WIDE-TC10')
-            path = os.path.join(root_dir, 'nus_wide_deep_doc2vec_data_42941.h5py')
+            root_dir = os.path.join(root_dir, 'nuswide')
+            path = os.path.join(root_dir, 'nuswide-42941.mat')
             valid_len = 5000
         elif 'inria' in dataset.lower():
             root_dir = os.path.join(root_dir, 'INRIA-Websearch')
@@ -51,58 +51,78 @@ class cross_modal_dataset(data.Dataset):
             raise Exception('Have no such dataset!')
 
         if doc2vec:
-            h = h5py.File(path)
-            if self.mode == 'test' or self.mode == 'valid':
-                test_imgs_deep = h['test_imgs_deep'][()].astype('float32')
-                test_imgs_labels = h['test_imgs_labels'][()]
-                test_imgs_labels -= np.min(test_imgs_labels)
-                try:
-                    test_texts_idx = h['test_text'][()].astype('float32')
-                except Exception as e:
-                    test_texts_idx = h['test_texts'][()].astype('float32')
-                test_texts_labels = h['test_texts_labels'][()]
-                test_texts_labels -= np.min(test_texts_labels)
-                test_data = [test_imgs_deep, test_texts_idx]
-                test_labels = [test_imgs_labels, test_texts_labels]
-
-                valid_flag = True
-                try:
-                    valid_texts_idx = h['valid_text'][()].astype('float32')
-                except Exception as e:
+            if 'wiki' in dataset.lower():
+                h = h5py.File(path)
+                if self.mode == 'test' or self.mode == 'valid':
+                    test_imgs_deep = h['test_imgs_deep'][()].astype('float32')
+                    test_imgs_labels = h['test_imgs_labels'][()]
+                    test_imgs_labels -= np.min(test_imgs_labels)
                     try:
-                        valid_texts_idx = h['valid_texts'][()].astype('float32')
+                        test_texts_idx = h['test_text'][()].astype('float32')
                     except Exception as e:
-                        valid_flag = False
-                        valid_data = [test_data[0][0: valid_len], test_data[1][0: valid_len]]
-                        valid_labels = [test_labels[0][0: valid_len], test_labels[1][0: valid_len]]
+                        test_texts_idx = h['test_texts'][()].astype('float32')
+                    test_texts_labels = h['test_texts_labels'][()]
+                    test_texts_labels -= np.min(test_texts_labels)
+                    test_data = [test_imgs_deep, test_texts_idx]
+                    test_labels = [test_imgs_labels, test_texts_labels]
 
-                        test_data = [test_data[0][valid_len::], test_data[1][valid_len::]]
-                        test_labels = [test_labels[0][valid_len::], test_labels[1][valid_len::]]
-                if valid_flag:
-                    valid_imgs_deep = h['valid_imgs_deep'][()].astype('float32')
-                    valid_imgs_labels = h['valid_imgs_labels'][()]
-                    valid_texts_labels = h['valid_texts_labels'][()]
-                    valid_texts_labels -= np.min(valid_texts_labels)
-                    valid_data = [valid_imgs_deep, valid_texts_idx]
-                    valid_labels = [valid_imgs_labels, valid_texts_labels]
+                    valid_flag = True
+                    try:
+                        valid_texts_idx = h['valid_text'][()].astype('float32')
+                    except Exception as e:
+                        try:
+                            valid_texts_idx = h['valid_texts'][()].astype('float32')
+                        except Exception as e:
+                            valid_flag = False
+                            valid_data = [test_data[0][0: valid_len], test_data[1][0: valid_len]]
+                            valid_labels = [test_labels[0][0: valid_len], test_labels[1][0: valid_len]]
 
-                train_data = valid_data if self.mode == 'valid' else test_data
-                train_label = valid_labels if self.mode == 'valid' else test_labels
-            elif self.mode == 'train':
-                tr_img = h['train_imgs_deep'][()].astype('float32')
-                tr_img_lab = h['train_imgs_labels'][()]
-                tr_img_lab -= np.min(tr_img_lab)
-                try:
-                    tr_txt = h['train_text'][()].astype('float32')
-                except Exception as e:
-                    tr_txt = h['train_texts'][()].astype('float32')
-                tr_txt_lab = h['train_texts_labels'][()]
-                tr_txt_lab -= np.min(tr_txt_lab)
-                train_data = [tr_img, tr_txt]
-                train_label = [tr_img_lab, tr_txt_lab]
+                            test_data = [test_data[0][valid_len::], test_data[1][valid_len::]]
+                            test_labels = [test_labels[0][valid_len::], test_labels[1][valid_len::]]
+                    if valid_flag:
+                        valid_imgs_deep = h['valid_imgs_deep'][()].astype('float32')
+                        valid_imgs_labels = h['valid_imgs_labels'][()]
+                        valid_texts_labels = h['valid_texts_labels'][()]
+                        valid_texts_labels -= np.min(valid_texts_labels)
+                        valid_data = [valid_imgs_deep, valid_texts_idx]
+                        valid_labels = [valid_imgs_labels, valid_texts_labels]
+
+                    train_data = valid_data if self.mode == 'valid' else test_data
+                    train_label = valid_labels if self.mode == 'valid' else test_labels
+                elif self.mode == 'train':
+                    tr_img = h['train_imgs_deep'][()].astype('float32')
+                    tr_img_lab = h['train_imgs_labels'][()]
+                    tr_img_lab -= np.min(tr_img_lab)
+                    try:
+                        tr_txt = h['train_text'][()].astype('float32')
+                    except Exception as e:
+                        tr_txt = h['train_texts'][()].astype('float32')
+                    tr_txt_lab = h['train_texts_labels'][()]
+                    tr_txt_lab -= np.min(tr_txt_lab)
+                    train_data = [tr_img, tr_txt]
+                    train_label = [tr_img_lab, tr_txt_lab]
+                else:
+                    raise Exception('Have no such set mode!')
+                h.close()
             else:
-                raise Exception('Have no such set mode!')
-            h.close()
+                data = sio.loadmat(path)
+                if self.mode == 'train':
+                    train_data = [data['tr_img'].astype('float32'),
+                                  data['tr_text'].astype('float32')]
+                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
+                                   data['tr_label'].reshape([-1]).astype('int64')]
+                elif self.mode == 'valid':
+                    train_data = [data['te_img'][0: valid_len].astype('float32'),
+                                  data['te_text'][0: valid_len].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1])[0: valid_len].astype('int64'),
+                                   data['te_label'].reshape([-1])[0: valid_len].reshape([-1]).astype('int64')]
+                elif self.mode == 'test':
+                    train_data = [data['te_img'][valid_len:].astype('float32'), data['te_text'][valid_len:].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1])[valid_len:].astype('int64'),
+                                   data['te_label'].reshape([-1])[valid_len:].reshape([-1]).astype('int64')]
+                else:
+                    raise Exception('Have no such set mode!')
+
         else:
             data = sio.loadmat(path)
             if 'xmedianet4view' in dataset.lower():
