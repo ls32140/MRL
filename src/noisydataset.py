@@ -117,12 +117,12 @@ class cross_modal_dataset(data.Dataset):
                     train_label = [data['te_label'].reshape([-1])[0: valid_len].astype('int64'),
                                    data['te_label'].reshape([-1])[0: valid_len].reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
-                    train_data = [data['te_img'][valid_len:].astype('float32'), data['te_text'][valid_len:].astype('float32')]
+                    train_data = [data['te_img'][valid_len:].astype('float32'),
+                                  data['te_text'][valid_len:].astype('float32')]
                     train_label = [data['te_label'].reshape([-1])[valid_len:].astype('int64'),
                                    data['te_label'].reshape([-1])[valid_len:].reshape([-1]).astype('int64')]
                 else:
                     raise Exception('Have no such set mode!')
-
         else:
             data = sio.loadmat(path)
             if 'xmedianet4view' in dataset.lower():
@@ -151,14 +151,8 @@ class cross_modal_dataset(data.Dataset):
                     raise Exception('Have no such set mode!')
 
 
-        # if 'wiki' in dataset.lower() or 'nus' in dataset.lower():
-        #     self.transition = {0: 0, 2: 0, 4: 7, 7: 7, 1: 1, 9: 1, 3: 5, 5: 3, 6: 6, 8: 8}
-        # else:
-        #     classes
-        #     self.transition = {}
-        #
-        train_label = [la.astype('int64') for la in train_label]
-        noise_label = train_label
+        self.train_label = [la.astype('int64') for la in train_label]
+        noise_label = self.train_label
         if noise_file is None:
             if noise_mode == 'sym':
                 noise_file = os.path.join(root_dir, 'noise_labels_%g_sym.json' % self.r)
@@ -170,7 +164,7 @@ class cross_modal_dataset(data.Dataset):
                 self.class_num = np.unique(noise_label).shape[0]
             else:    #inject noise
                 noise_label = []
-                classes = np.unique(train_label[0])
+                classes = np.unique(self.train_label[0])
                 class_num = classes.shape[0]
                 self.class_num = class_num
                 inx = np.arange(class_num)
@@ -192,10 +186,10 @@ class cross_modal_dataset(data.Dataset):
                                 noiselabel = int(random.randint(0, class_num-1))
                                 noise_label_tmp.append(noiselabel)
                             elif noise_mode == 'asym':
-                                noiselabel = self.transition[train_label[v][i]]
+                                noiselabel = self.transition[self.train_label[v][i]]
                                 noise_label_tmp.append(noiselabel)
                         else:
-                            noise_label_tmp.append(int(train_label[v][i]))
+                            noise_label_tmp.append(int(self.train_label[v][i]))
                     noise_label.append(noise_label_tmp)
                 # print("save noisy labels to %s ..." % noise_file)
                 json.dump(noise_label, open(noise_file, "w"))
@@ -214,6 +208,12 @@ class cross_modal_dataset(data.Dataset):
         for v in range(n_view):
             id = idx[v]
             self.noise_label[v][id] = pred[v].argmax(1)[id]
+        s = self.noise_label - self.train_label
+        cnt_array = np.where(s, 0, 1)
+        num=np.sum(cnt_array)
+        rio = num/4346
+        print("rio:",rio)
+
     def reset(self, pred, prob, mode='labeled'):
         if pred is None:
             self.prob = None
