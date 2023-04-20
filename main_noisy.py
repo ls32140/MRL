@@ -223,8 +223,6 @@ def main():
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
-        result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
-        up_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
             index = index
@@ -252,40 +250,25 @@ def main():
             C.data = t.t()
 
             preds = [outputs[v].mm(C) for v in range(n_view)]
-            for v in range(n_view):
-                result[v][index] = preds[v].cpu().detach().numpy()
             # for v in range(n_view):
             #     if v == 0:
             #         aum_calculator.update(preds[v], targets[v], index)
             #     else: aum_calculator.update(preds[v], targets[v], index+100)
             # if(epoch == 1):
             #     aum_calculator.finalize()
-
-
             s_CE_loss = [s_CE(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(s_CE(preds[v], targets[v])) for v in range(n_view)]
             aa = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            loss_all = (args.beta * aa + (1. - args.beta) * contrastiveLoss).cpu()
-            loss = torch.mean(loss_all)
+            loss_pick = (args.beta * aa + (1. - args.beta) * contrastiveLoss).cpu()
+            ind_sorted = np.argsort(loss_pick.data)
+            loss_sorted = loss_pick[ind_sorted]
+            remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
+            num_remember = int(remember_rate * len(loss_sorted))
+            ind_update = ind_sorted[:num_remember]
+            loss = torch.mean(loss_pick[ind_update])
 
-            # entropy_loss = [ce_no_mean(preds[v], targets[v]) for v in range(n_view)]
-            # ppp = torch.stack(s_CE_loss).reshape(1, -1).squeeze().cpu()
-            ppp = loss_all
-            ind_sorted = np.argsort(ppp.data)
-            loss_sorted = ppp[ind_sorted]
-
-            reset_rate = min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
-            num_reset = int(reset_rate * len(loss_sorted))
-            if epoch > 15:
-                min_value = loss_sorted[-num_reset:(-num_reset + 1)].sum(0)
-            else: min_value = 100000
-            # min_value = loss_sorted[-num_reset:(-num_reset + 1)].sum(0)
-            need_update = (loss_all.reshape(2, -1).cpu() >= min_value).tolist()
-            for v in range(n_view):
-                ss = index[need_update[v]]
-                up_idx[v] = torch.cat([up_idx[v], ss], dim=0)
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
@@ -299,8 +282,6 @@ def main():
                 correct_list[v] += acc
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f | LR: %g'
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
-
-        train_dataset.reset1(result, up_idx)
 
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
