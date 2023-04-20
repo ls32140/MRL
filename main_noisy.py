@@ -2,7 +2,7 @@ import numpy as np
 import os
 import torch
 
-#c + gmm + 校正 + 对比学习
+#c + smooth + 校正 + 对比学习
 # import numpy as np
 # import os
 # # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
@@ -23,7 +23,6 @@ import scipy
 import scipy.spatial
 import numpy.ma as ma
 from sklearn.mixture import GaussianMixture as GMM
-from aum import AUMCalculator
 
 save_dir = 'aum'
 best_acc = 0  # best test accuracy
@@ -220,13 +219,12 @@ def main():
         Q = Q * B  # the colomns must sum to 1 so that Q is an assignment
         return Q.t()
 
-    result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
-    up_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
-
+        result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
+        up_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
             index = index
@@ -277,10 +275,6 @@ def main():
             ppp = loss_all
             ind_sorted = np.argsort(ppp.data)
             loss_sorted = ppp[ind_sorted]
-            # if epoch > 5:
-            #     remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
-            # else:
-            #     remember_rate = 1
 
             reset_rate = min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
             num_reset = int(reset_rate * len(loss_sorted))
