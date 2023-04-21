@@ -209,11 +209,6 @@ class cross_modal_dataset(data.Dataset):
         else:
             self.prob = None
 
-    def reset1(self, pred, idx):
-        n_view = len(self.train_data)
-        for v in range(n_view):
-            id = idx[v]
-            self.noise_label[v][id] = pred[v].argmax(1)[id]
     def reset(self, pred, prob, mode='labeled'):
         if pred is None:
             self.prob = None
