@@ -259,11 +259,11 @@ def main():
             # if(epoch == 1):
             #     aum_calculator.finalize()
             s_CE_loss = [s_CE(preds[v], targets[v]) for v in range(n_view)]
-            losses = [torch.mean(s_CE(preds[v], targets[v])) for v in range(n_view)]
-            aa = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
+            losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
+            s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            loss_pick = (args.beta * aa + (1. - args.beta) * contrastiveLoss).cpu()
+            loss_pick = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
             ind_sorted = np.argsort(loss_pick.data)
             loss_sorted = loss_pick[ind_sorted]
             remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
