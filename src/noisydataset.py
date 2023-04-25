@@ -32,7 +32,7 @@ class cross_modal_dataset(data.Dataset):
             valid_len = 231
         elif 'nus' in dataset.lower():
             root_dir = os.path.join(root_dir, 'nuswide')
-            path = os.path.join(root_dir, 'nuswide-42941.mat')
+            path = os.path.join(root_dir, 'nuswide-42941-5k.mat')
             valid_len = 5000
         elif 'inria' in dataset.lower():
             root_dir = os.path.join(root_dir, 'INRIA-Websearch')

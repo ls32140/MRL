@@ -2,7 +2,7 @@ import numpy as np
 import os
 import torch
 
-#c + smooth + 校正 + 对比学习
+#c + smooth + 筛选 + 对比学习
 # import numpy as np
 # import os
 # # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
@@ -109,6 +109,8 @@ def main():
 
     if args.loss == 'CE':
         criterion = torch.nn.CrossEntropyLoss().cuda()
+    elif args.loss == 'smooth':
+        criterion = smoothCE(0.1, 10, 1)
     elif args.loss == 'MCE':
         criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
     else:
@@ -352,24 +354,27 @@ def main():
                 print_str = print_str + key + ': %.3f\t' % val_dict[key]
         return val_dict, print_str
 
-    def test(epoch):
+    def test(epoch, is_eval=False):
             global best_acc
             set_eval()
             # switch to evaluate mode
-            fea, lab = eval(train_loader, epoch, 'train')
-
-            MAPs = np.zeros([n_view, n_view])
-            train_dict = {}
-            for i in range(n_view):
-                for j in range(n_view):
-                    MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
-                    train_dict['%s2%s' % (args.views[i], args.views[j])] = MAPs[i, j]
-
-            train_avg = MAPs.sum() / n_view / (n_view - 1.)
-            train_dict['avg'] = train_avg
-            summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
+            # fea, lab = eval(train_loader, epoch, 'train')
+            #
+            # MAPs = np.zeros([n_view, n_view])
+            # train_dict = {}
+            # for i in range(n_view):
+            #     for j in range(n_view):
+            #         MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
+            #         train_dict['%s2%s' % (args.views[i], args.views[j])] = MAPs[i, j]
+            #
+            # train_avg = MAPs.sum() / n_view / (n_view - 1.)
+            # train_dict['avg'] = train_avg
+            # summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
 
             fea, lab = eval(valid_loader, epoch, 'valid')
+            if is_eval:
+                fea = [fea[v][0: 2000] for v in range(n_view)]
+                lab = [lab[v][0: 2000] for v in range(n_view)]
             MAPs = np.zeros([n_view, n_view])
             val_dict = {}
             print_val_str = 'Validation: '
@@ -390,6 +395,9 @@ def main():
             summary_writer.add_scalars('Retrieval/valid', val_dict, epoch)
 
             fea, lab = eval(test_loader, epoch, 'test')
+            if is_eval:
+                fea = [fea[v][0: 2000] for v in range(n_view)]
+                lab = [lab[v][0: 2000] for v in range(n_view)]
             MAPs = np.zeros([n_view, n_view])
             test_dict = {}
             print_test_str = 'Test: '
