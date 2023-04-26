@@ -179,10 +179,10 @@ def main():
 
         sim_sum1 = sum([sim[:, v * batch_size: (v + 1) * batch_size] for v in range(n_view)])
         diag1 = torch.cat([sim_sum1[v * batch_size: (v + 1) * batch_size].diag() for v in range(n_view)])
-        loss1 = -(diag1 / masked_sim1.sum(1)).log().mean()
+        loss1 = -(diag1 / masked_sim1.sum(1)).log()
         sim_sum2 = sum([sim[v * batch_size: (v + 1) * batch_size] for v in range(n_view)])
         diag2 = torch.cat([sim_sum2[:, v * batch_size: (v + 1) * batch_size].diag() for v in range(n_view)])
-        loss2 = -(diag2 / masked_sim1.sum(1)).log().mean()
+        loss2 = -(diag2 / masked_sim1.sum(1)).log()
         return loss1 + loss2
     def gmm_loss(x, pred):
         xx = x.cpu().detach().numpy()
