@@ -354,7 +354,7 @@ def main():
                 print_str = print_str + key + ': %.3f\t' % val_dict[key]
         return val_dict, print_str
 
-    def test(epoch, is_eval=False):
+    def test(epoch, is_eval=True):
             global best_acc
             set_eval()
             # switch to evaluate mode
