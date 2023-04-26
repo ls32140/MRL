@@ -14,6 +14,7 @@ import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
 cudnn.benchmark = True
 import nets as models
+from src.builder import cross_MoCo
 from utils.bar_show import progress_bar
 from src.noisydataset import cross_modal_dataset
 from src.smoothCE import smoothCE
@@ -24,7 +25,6 @@ import scipy.spatial
 import numpy.ma as ma
 from sklearn.mixture import GaussianMixture as GMM
 
-save_dir = 'aum'
 best_acc = 0  # best test accuracy
 start_epoch = 0
 
@@ -107,6 +107,14 @@ def main():
     else:
         lr_schedu = optim.lr_scheduler.MultiStepLR(optimizer, [200, 400], gamma=0.1)
 
+    print("=> creating moco '{}'".format(1))
+    moco = cross_MoCo(
+        [multi_models[v].parameters() for v in range(n_view)],
+        models.__dict__['ImageNet'],
+        models.__dict__['TextNet']
+    )
+    print(moco)
+
     if args.loss == 'CE':
         criterion = torch.nn.CrossEntropyLoss().cuda()
     elif args.loss == 'smooth':
@@ -179,10 +187,10 @@ def main():
 
         sim_sum1 = sum([sim[:, v * batch_size: (v + 1) * batch_size] for v in range(n_view)])
         diag1 = torch.cat([sim_sum1[v * batch_size: (v + 1) * batch_size].diag() for v in range(n_view)])
-        loss1 = -(diag1 / masked_sim1.sum(1)).log().mean()
+        loss1 = -(diag1 / masked_sim1.sum(1)).log()
         sim_sum2 = sum([sim[v * batch_size: (v + 1) * batch_size] for v in range(n_view)])
         diag2 = torch.cat([sim_sum2[:, v * batch_size: (v + 1) * batch_size].diag() for v in range(n_view)])
-        loss2 = -(diag2 / masked_sim1.sum(1)).log().mean()
+        loss2 = -(diag2 / masked_sim1.sum(1)).log()
         return loss1 + loss2
     def gmm_loss(x, pred):
         xx = x.cpu().detach().numpy()
@@ -252,17 +260,13 @@ def main():
             C.data = t.t()
 
             preds = [outputs[v].mm(C) for v in range(n_view)]
-            # for v in range(n_view):
-            #     if v == 0:
-            #         aum_calculator.update(preds[v], targets[v], index)
-            #     else: aum_calculator.update(preds[v], targets[v], index+100)
-            # if(epoch == 1):
-            #     aum_calculator.finalize()
             s_CE_loss = [s_CE(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
             s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            output1, target1, output2, target2 = moco(outputs[0], outputs[1], batches[0], batches[1])
+            contrastiveLoss1 = ce_no_mean(output1, target1) + ce_no_mean(output2, target2)
             loss_pick = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
             ind_sorted = np.argsort(loss_pick.data)
             loss_sorted = loss_pick[ind_sorted]
