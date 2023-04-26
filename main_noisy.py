@@ -158,8 +158,8 @@ def main():
             masked_sim2 = torch.masked_fill(sim, condition2, value=0) # 同类
             top_value, top_i = torch.topk(masked_sim2, 1)
             select_sim = (top_value.sum()).reshape(1, -1).squeeze()
-            loss.append(-(select_sim / masked_sim1.sum(1)).log().mean())
-        return loss[0] + loss[1]
+            loss.append(-(select_sim / masked_sim1.sum(1)).log())
+        return torch.cat(loss)
     def cross_modal_contrastive_ctriterion(fea, tar, tau=1.):
         batch_size = fea[0].shape[0]
         all_fea = torch.cat(fea)
