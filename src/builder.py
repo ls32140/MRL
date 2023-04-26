@@ -44,18 +44,14 @@ class cross_MoCo(nn.Module):
                 param_k.data = param_k.data * self.m + param_q.data * (1. - self.m)
 
     @torch.no_grad()
-    def _dequeue_and_enqueue(self, keys, str):
+    def _dequeue_and_enqueue(self, img_keys, text_keys):
         # gather keys before updating queue
         # keys = concat_all_gather(keys)
 
-        batch_size = keys.shape[0]
-
+        batch_size = img_keys.shape[0]
         ptr = int(self.queue_ptr)
-
-        if (str == "img"):
-            self.queue_img[:, ptr:ptr + batch_size] = keys.T
-        if (str == "text"):
-            self.queue_text[:, ptr: ptr + batch_size] = keys.T
+        self.queue_img[:, ptr:ptr + batch_size] = img_keys.T
+        self.queue_text[:, ptr: ptr + batch_size] = text_keys.T
 
         ptr = (ptr + batch_size) % self.K  # move pointer
         self.queue_ptr[0] = ptr
@@ -96,7 +92,6 @@ class cross_MoCo(nn.Module):
             logits1 /= self.T
             labels1 = torch.zeros(logits.shape[0], dtype=torch.long).cuda()
 
-            self._dequeue_and_enqueue(img_k_en, 'img')
-            self._dequeue_and_enqueue(text_k_en, 'text')
+            self._dequeue_and_enqueue(img_k_en, text_k_en)
 
             return logits, labels, logits1, labels1

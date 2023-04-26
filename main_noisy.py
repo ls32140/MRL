@@ -266,8 +266,9 @@ def main():
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             output1, target1, output2, target2 = moco(outputs[0], outputs[1], batches[0], batches[1])
-            contrastiveLoss1 = ce_no_mean(output1, target1) + ce_no_mean(output2, target2)
-            loss_pick = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
+
+            contrastiveLoss1 = torch.cat((ce_no_mean(output1, target1),ce_no_mean(output2, target2)),0)
+            loss_pick = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss1).cpu()
             ind_sorted = np.argsort(loss_pick.data)
             loss_sorted = loss_pick[ind_sorted]
             remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
@@ -358,7 +359,7 @@ def main():
                 print_str = print_str + key + ': %.3f\t' % val_dict[key]
         return val_dict, print_str
 
-    def test(epoch, is_eval=False):
+    def test(epoch, is_eval=True):
             global best_acc
             set_eval()
             # switch to evaluate mode
