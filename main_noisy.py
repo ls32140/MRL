@@ -15,7 +15,7 @@ import nets as models
 from utils.bar_show import progress_bar
 from src.noisydataset import cross_modal_dataset
 from src.smoothCE import smoothCE
-from src.SCELoss import SCELoss
+from src.bmm import BetaMixture1D
 import src.utils as utils
 import scipy
 import scipy.spatial
@@ -91,8 +91,6 @@ def main():
     embedding = torch.eye(train_dataset.class_num).cuda()
     embedding.requires_grad = False
 
-    # aum_calculator = AUMCalculator(save_dir, compressed=False)
-
     parameters = []
     for v in range(n_view):
         parameters += list(multi_models[v].parameters())
@@ -118,8 +116,7 @@ def main():
 
     summary_writer = SummaryWriter(args.log_dir)
 
-    # SCE = SCELoss()
-    def entropyLoss(a,tar):
+    def entropyLoss(a,tar): # 两个向量的交叉熵
         logsoftmax = torch.nn.LogSoftmax(dim=1)
         res = -tar * logsoftmax(a)
         return torch.mean(torch.sum(res, dim=1))
@@ -189,35 +186,6 @@ def main():
         logsoftmax = torch.nn.LogSoftmax(dim=1)
         res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
         return torch.sum(res, dim=1)
-
-    def similarityLoss(p):
-        q = [distributed_sinkhorn(p[v]) for v in range(n_view)]
-        intra = [entropyLoss(q[v], p[v]) for v in range(n_view)]
-        inter = [entropyLoss(q[0], p[1]), entropyLoss(q[1], p[0])]
-        out = [0.01*intra[v]+inter[v] for v in range(n_view)]
-        return sum(out)
-
-    def distributed_sinkhorn(out):
-        Q = torch.exp(out / 0.05).t()  # Q is K-by-B for consistency with notations from our paper
-        B = Q.shape[1]  # number of samples to assign
-        K = Q.shape[0]  # how many prototypes
-
-        # make the matrix sums to 1
-        sum_Q = torch.sum(Q)
-        Q = Q / sum_Q
-
-        for it in range(3):
-            # normalize each row: total weight per prototype must be 1/K
-            sum_of_rows = torch.sum(Q, dim=1, keepdim=True)
-            Q = Q / sum_of_rows
-            Q = Q / K
-
-            # normalize each column: total weight per sample must be 1/B
-            Q = Q / torch.sum(Q, dim=0, keepdim=True)
-            Q = Q / B
-
-        Q = Q * B  # the colomns must sum to 1 so that Q is an assignment
-        return Q.t()
 
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
