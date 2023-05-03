@@ -18,7 +18,7 @@ parser.add_argument('--max_epochs', type=int, default=100)
 parser.add_argument('--num_workers', type=int, default=0)
 parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
 parser.add_argument('--ls', type=str, default='cos', help='lr scheduler')
-parser.add_argument('--loss', type=str, default='CE', help='CE RCE MAE') # MCE
+parser.add_argument('--loss', type=str, default='CE', help='CE RCE MAE SmoothCE') # MCE
 parser.add_argument('--output_dim', type=int, default=512, help='output shape')
 parser.add_argument('--noisy_ratio', type=float, default=0.6) # 0.2 0.4 0.6 0.8
 parser.add_argument('--beta', type=float, default=0.5)

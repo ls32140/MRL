@@ -109,8 +109,10 @@ def main():
 
     if args.loss == 'CE':
         criterion = torch.nn.CrossEntropyLoss().cuda()
-    elif args.loss == 'smooth':
-        criterion = smoothCE(0.1, 10, 1)
+        criterion_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
+    elif args.loss == 'smoothCE':
+        criterion = smoothCE(0.1, 10)
+        criterion_no_mean = smoothCE(0.1, 10, 1)
     elif args.loss == 'MCE':
         criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
     else:
@@ -118,9 +120,7 @@ def main():
 
     summary_writer = SummaryWriter(args.log_dir)
 
-    ce_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
-    s_CE = smoothCE(0.1, 10, 1)
-    SCE = SCELoss()
+    # SCE = SCELoss()
     def entropyLoss(a,tar):
         logsoftmax = torch.nn.LogSoftmax(dim=1)
         res = -tar * logsoftmax(a)
@@ -258,7 +258,7 @@ def main():
             #     else: aum_calculator.update(preds[v], targets[v], index+100)
             # if(epoch == 1):
             #     aum_calculator.finalize()
-            s_CE_loss = [s_CE(preds[v], targets[v]) for v in range(n_view)]
+            s_CE_loss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
             s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
@@ -267,7 +267,7 @@ def main():
             ind_sorted = np.argsort(loss_pick.data)
             loss_sorted = loss_pick[ind_sorted]
             remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
-            if epoch < 4:
+            if epoch < 2:
                 remember_rate = 1
             num_remember = int(remember_rate * len(loss_sorted))
             ind_update = ind_sorted[:num_remember]

@@ -37,6 +37,7 @@ class smoothCE(nn.Module):
             # standard cross entropy loss
             loss = -1. * pred.gather(1, target.unsqueeze(-1)) + torch.log(torch.exp(pred + eps).sum(dim=1))
 
+        #onMean 传值就不求平均， 不传值求平均
         if self.onMean is not None:
             return loss
         return loss.mean()
