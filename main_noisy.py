@@ -1,8 +1,6 @@
 import numpy as np
 import os
 import torch
-
-#c + smooth + 筛选 + 对比学习
 # import numpy as np
 # import os
 # # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
@@ -154,8 +152,8 @@ def main():
             dif = tar[v]-tar[v].reshape(-1, 1)
             condition1 = dif == 0
             condition2 = dif != 0
-            masked_sim1 = torch.masked_fill(sim, condition1, value=0)  # 不同类
-            masked_sim2 = torch.masked_fill(sim, condition2, value=0) # 同类
+            masked_sim1 = torch.masked_fill(sim, condition1, value=0)  # not seem class
+            masked_sim2 = torch.masked_fill(sim, condition2, value=0) # seem class
             top_value, top_i = torch.topk(masked_sim2, 1)
             select_sim = (top_value.sum()).reshape(1, -1).squeeze()
             loss.append(-(select_sim / masked_sim1.sum(1)).log())
@@ -171,7 +169,7 @@ def main():
         re_targets = all_targets.reshape((-1, 1))
         dif = all_targets - re_targets
         condition1 = dif == 0
-        masked_sim1 = torch.masked_fill(sim, condition1, value=0) #不同类别
+        masked_sim1 = torch.masked_fill(sim, condition1, value=0) #not seem class
 
         # m_sim = [sim[v * batch_size: (v + 1) * batch_size, v * batch_size: (v + 1) * batch_size] for v in range(n_view)]
         # m_sim_sum = torch.cat(m_sim).sum(1)
