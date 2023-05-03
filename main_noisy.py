@@ -267,6 +267,8 @@ def main():
             ind_sorted = np.argsort(loss_pick.data)
             loss_sorted = loss_pick[ind_sorted]
             remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
+            if epoch < 4:
+                remember_rate = 1
             num_remember = int(remember_rate * len(loss_sorted))
             ind_update = ind_sorted[:num_remember]
             loss = torch.mean(loss_pick[ind_update])
@@ -355,6 +357,7 @@ def main():
         return val_dict, print_str
 
     def test(epoch, is_eval=True):
+
             global best_acc
             set_eval()
             # switch to evaluate mode
