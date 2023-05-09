@@ -187,13 +187,19 @@ def main():
         res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
         return torch.sum(res, dim=1)
 
+    def split_prob(prob, threshld):
+        pred = prob > threshld
+        return pred
+
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
+        select_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
             index = index
+            batch_size = batches[0].shape[0]
             norm = C.norm(dim=0, keepdim=True)
             C.data = (C / norm).detach()
 
@@ -218,26 +224,45 @@ def main():
             C.data = t.t()
 
             preds = [outputs[v].mm(C) for v in range(n_view)]
-            # for v in range(n_view):
-            #     if v == 0:
-            #         aum_calculator.update(preds[v], targets[v], index)
-            #     else: aum_calculator.update(preds[v], targets[v], index+100)
-            # if(epoch == 1):
-            #     aum_calculator.finalize()
             s_CE_loss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
             s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            loss_pick = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
-            ind_sorted = np.argsort(loss_pick.data)
-            loss_sorted = loss_pick[ind_sorted]
+            loss_all = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss)
+            ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
+            loss_sorted = loss_all[ind_sorted]
             remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
-            if epoch < 2:
-                remember_rate = 1
+            # if epoch < 5:
+            #     remember_rate = 1
             num_remember = int(remember_rate * len(loss_sorted))
             ind_update = ind_sorted[:num_remember]
-            loss = torch.mean(loss_pick[ind_update])
+            loss = torch.mean(loss_all[ind_update])
+            # gmm = GMM(n_components=2, max_iter=10, tol=1e-2, reg_covar=5e-4)
+            # gmm.fit(loss_re)
+            # prob = gmm.predict_proba(loss_re)
+            # prob = prob[:, gmm.means_.argmin()]
+            loss_nor = (loss_all - loss_all.min()) / (loss_all.max() - loss_all.min())
+
+            bmm_A = BetaMixture1D(max_iters=10)
+            loss_i = loss_nor.reshape(-1, 1)[0:batch_size].cpu().detach().numpy()
+            bmm_A.fit(loss_i)
+            prob_A = bmm_A.posterior(loss_i, 0)
+
+            bmm_B = BetaMixture1D(max_iters=10)
+            loss_t = loss_nor.reshape(-1, 1)[batch_size:].cpu().detach().numpy()
+            bmm_B.fit(loss_t)
+            prob_B = bmm_A.posterior(loss_t, 0)
+
+            pred_A = split_prob(prob_A, 0.8).T.squeeze()
+            pred_B = split_prob(prob_B, 0.8).T.squeeze()
+
+            # prob = np.vstack((prob_A, prob_B)).T.squeeze()
+            selected = [pred_A, pred_B]
+            for v in range(n_view):
+                ss = index[selected[v]]
+                select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
+            train_dataset.testClean(select_idx)
 
             if epoch >= 0:
                 loss.backward()
@@ -322,7 +347,7 @@ def main():
                 print_str = print_str + key + ': %.3f\t' % val_dict[key]
         return val_dict, print_str
 
-    def test(epoch, is_eval=True):
+    def test(epoch, is_eval=False):
 
             global best_acc
             set_eval()

@@ -6,6 +6,7 @@
 #
 import random
 from logging import getLogger
+import torch
 
 import cv2
 from PIL import ImageFilter, Image
@@ -202,6 +203,20 @@ class cross_modal_dataset(data.Dataset):
             self.prob = [np.ones_like(ll) for ll in self.default_noise_label]
         else:
             self.prob = None
+
+    def testClean(self, idx):
+        n_view = len(self.train_data)
+        s = []
+        for v in range(n_view):
+            id = idx[v]
+            a = self.noise_label[v][id] - self.train_label[v][id]
+            cnt_array = np.where(a, 0, 1)
+            s.append(cnt_array)
+        p= np.hstack(s)
+        num=np.sum(p)
+        rio = num / len(p)
+        print("rio:",rio)
+
     def reset(self, pred, prob, mode='labeled'):
         if pred is None:
             self.prob = None
