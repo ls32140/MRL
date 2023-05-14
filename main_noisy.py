@@ -254,15 +254,17 @@ def main():
             bmm_B.fit(loss_t)
             prob_B = bmm_A.posterior(loss_t, 0)
 
-            pred_A = split_prob(prob_A, 0.8).T.squeeze()
-            pred_B = split_prob(prob_B, 0.8).T.squeeze()
+            if epoch>3:
+                pred_A = split_prob(prob_A, 0.8).T.squeeze()
+                pred_B = split_prob(prob_B, 0.8).T.squeeze()
 
-            # prob = np.vstack((prob_A, prob_B)).T.squeeze()
-            selected = [pred_A, pred_B]
-            for v in range(n_view):
-                ss = index[selected[v]]
-                select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
-            train_dataset.testClean(select_idx)
+                # prob = np.vstack((prob_A, prob_B)).T.squeeze()
+                selected = [pred_A, pred_B]
+                for v in range(n_view):
+                    ss = index[selected[v]]
+                    select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
+                train_dataset.testClean(select_idx)
+
 
             if epoch >= 0:
                 loss.backward()
@@ -347,7 +349,7 @@ def main():
                 print_str = print_str + key + ': %.3f\t' % val_dict[key]
         return val_dict, print_str
 
-    def test(epoch, is_eval=False):
+    def test(epoch, is_eval=True):
 
             global best_acc
             set_eval()

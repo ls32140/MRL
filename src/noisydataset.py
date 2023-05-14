@@ -215,6 +215,7 @@ class cross_modal_dataset(data.Dataset):
         p= np.hstack(s)
         num=np.sum(p)
         rio = num / len(p)
+        print(num, len(p))
         print("rio:",rio)
 
     def reset(self, pred, prob, mode='labeled'):
