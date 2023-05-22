@@ -1,6 +1,8 @@
 import numpy as np
 import scipy.stats as stats
 
+np.seterr(divide='ignore',invalid='ignore')
+
 def weighted_mean(x, w):
     return np.sum(w * x) / np.sum(w)
 

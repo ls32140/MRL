@@ -21,6 +21,8 @@ import scipy
 import scipy.spatial
 import numpy.ma as ma
 from sklearn.mixture import GaussianMixture as GMM
+import torch.nn.functional as F
+from sklearn.preprocessing import LabelBinarizer
 
 save_dir = 'aum'
 best_acc = 0  # best test accuracy
@@ -119,9 +121,9 @@ def main():
     def entropyLoss(a,tar): # 两个向量的交叉熵
         logsoftmax = torch.nn.LogSoftmax(dim=1)
         res = -tar * logsoftmax(a)
-        return torch.mean(torch.sum(res, dim=1))
+        return torch.sum(res, dim=1)
 
-
+    CE = torch.nn.CrossEntropyLoss().cuda()
     if args.resume:
         ckpt = torch.load(os.path.join(args.ckpt_dir, args.resume))
         for v in range(n_view):
@@ -168,10 +170,6 @@ def main():
         condition1 = dif == 0
         masked_sim1 = torch.masked_fill(sim, condition1, value=0) #not seem class
 
-        # m_sim = [sim[v * batch_size: (v + 1) * batch_size, v * batch_size: (v + 1) * batch_size] for v in range(n_view)]
-        # m_sim_sum = torch.cat(m_sim).sum(1)
-        # neg_sim = masked_sim.sum(1) - m_sim_sum
-
         sim_sum1 = sum([sim[:, v * batch_size: (v + 1) * batch_size] for v in range(n_view)])
         diag1 = torch.cat([sim_sum1[v * batch_size: (v + 1) * batch_size].diag() for v in range(n_view)])
         loss1 = -(diag1 / masked_sim1.sum(1)).log()
@@ -186,10 +184,6 @@ def main():
         logsoftmax = torch.nn.LogSoftmax(dim=1)
         res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
         return torch.sum(res, dim=1)
-
-    def split_prob(prob, threshld):
-        pred = prob > threshld
-        return pred
 
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
@@ -227,45 +221,108 @@ def main():
             s_CE_loss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
             s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
+
+            # ce_f  = torch.nn.CrossEntropyLoss(reduction='none')
+            # ce_loss = [ce_f(preds[v], targets[v]) for v in range(n_view)]
+            # ce_loss = torch.stack(ce_loss).reshape(1, -1).squeeze()
+
+            loss_nor = (s_CE_loss - s_CE_loss.min()) / (s_CE_loss.max() - s_CE_loss.min())
+            # loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
+            bmm_A = BetaMixture1D(max_iters=10)
+            loss_i = loss_nor.reshape(-1, 1)[0:batch_size].cpu().detach().numpy()
+            bmm_A.fit(loss_i)
+            prob_A = bmm_A.posterior(loss_i, 0).T.squeeze()
+
+            bmm_B = BetaMixture1D(max_iters=10)
+            loss_t = loss_nor.reshape(-1, 1)[batch_size:].cpu().detach().numpy()
+            bmm_B.fit(loss_t)
+            prob_B = bmm_A.posterior(loss_t, 0).T.squeeze()
+
+            select_num = len(prob_A) // 10
+            threshld_A = np.sort(prob_A)[::-1][select_num]
+            threshld_B = np.sort(prob_B)[::-1][select_num]
+            # if epoch>3:
+            pred_A = (prob_A > threshld_A).squeeze()
+            pred_B = (prob_B > threshld_B).squeeze()
+
+            # pred = np.hstack((pred_A, pred_B)).T.squeeze()
+            selected = [pred_A, pred_B]
+            inputs_x =  [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            targets_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            inputs_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            targets_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            outputs_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            all_inputs = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+
+            classes = torch.arange(0, train_dataset.class_num, 1).cuda()
+            added = [torch.cat([targets[v], classes], dim=0) for v in range(n_view)]
+            all_targets = [LabelBinarizer().fit_transform(added[v].cpu().detach().numpy())[:-train_dataset.class_num] for v in range(n_view)]
+
+            # all_targets = [LabelBinarizer().fit_transform(targets[v].cpu().detach().numpy()) for v in range(n_view)]
+            for v in range(n_view):
+                inputs_x[v] = batches[v][selected[v]]
+                targets_x[v] = all_targets[v][selected[v]]
+                inputs_u[v] = batches[v][~selected[v]]
+                outputs_u[v] = preds[v][~selected[v]]
+                targets_u[v] = all_targets[v][~selected[v]]
+
+                all_inputs[v] = torch.cat([inputs_x[v], inputs_u[v]], dim=0).cuda()
+                targets_x[v] = torch.from_numpy(targets_x[v])
+                targets_u[v] = torch.from_numpy(targets_u[v])
+                all_targets[v] = torch.cat([targets_x[v], targets_u[v]], dim=0).cuda()
+
+            with torch.no_grad():
+                # compute guessed labels of unlabel samples
+                for v in range(n_view):
+                    p = torch.softmax(outputs_u[v], dim=1)
+                    pt = p ** (1 / args.T)
+                    targets_u[v] = pt / pt.sum(dim=1, keepdim=True)
+                    targets_u[v] = targets_u[v].detach()
+            # mixmatch
+            l = np.random.beta(args.alpha, args.alpha)
+            l = max(l, 1 - l)
+
+            idx = torch.randperm(all_inputs[0].size(0))
+            mixed_input = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            mixed_target = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            logits = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            Lx = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            prior = torch.ones(train_dataset.class_num) / train_dataset.class_num
+            prior = prior.cuda()
+            for v in range(n_view):
+                mixed_input[v] = l * all_inputs[v] + (1 - l) * all_inputs[v][idx]
+                mixed_target[v] = l * all_targets[v] + (1 - l) * all_targets[v][idx]
+                logits[v] = multi_models[v](mixed_input[v]).mm(C)
+
+                # pred_mean = torch.softmax(logits[v], dim=1).mean(0)
+                # penalty = torch.sum(prior * torch.log(prior / pred_mean))
+
+                Lx[v] = entropyLoss(logits[v],mixed_target[v]) # + penalty
+
+            lx_loss = torch.cat(Lx)
+
+            for v in range(n_view):
+                ss = index[selected[v]]
+                select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
+
+            train_dataset.testClean(select_idx)
+
+
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            loss_all = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss)
+            # if epoch < 10:
+            #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
+            # else:
+            loss_all = 0.7 * s_CE_loss+ 1 * contrastiveLoss + 0.3 * lx_loss
             ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             loss_sorted = loss_all[ind_sorted]
-            remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
+            remember_rate = 1
+            # remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
             # if epoch < 5:
             #     remember_rate = 1
             num_remember = int(remember_rate * len(loss_sorted))
             ind_update = ind_sorted[:num_remember]
             loss = torch.mean(loss_all[ind_update])
-            # gmm = GMM(n_components=2, max_iter=10, tol=1e-2, reg_covar=5e-4)
-            # gmm.fit(loss_re)
-            # prob = gmm.predict_proba(loss_re)
-            # prob = prob[:, gmm.means_.argmin()]
-            loss_nor = (loss_all - loss_all.min()) / (loss_all.max() - loss_all.min())
-
-            bmm_A = BetaMixture1D(max_iters=10)
-            loss_i = loss_nor.reshape(-1, 1)[0:batch_size].cpu().detach().numpy()
-            bmm_A.fit(loss_i)
-            prob_A = bmm_A.posterior(loss_i, 0)
-
-            bmm_B = BetaMixture1D(max_iters=10)
-            loss_t = loss_nor.reshape(-1, 1)[batch_size:].cpu().detach().numpy()
-            bmm_B.fit(loss_t)
-            prob_B = bmm_A.posterior(loss_t, 0)
-
-            if epoch>3:
-                pred_A = split_prob(prob_A, 0.8).T.squeeze()
-                pred_B = split_prob(prob_B, 0.8).T.squeeze()
-
-                # prob = np.vstack((prob_A, prob_B)).T.squeeze()
-                selected = [pred_A, pred_B]
-                for v in range(n_view):
-                    ss = index[selected[v]]
-                    select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
-                train_dataset.testClean(select_idx)
-
-
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
@@ -441,10 +498,10 @@ def main():
             multi_model_state_dict = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in multi_models]
             W_best = C.clone()
 
-    print('Evaluation on Last Epoch:')
-    fea, lab = eval(test_loader, epoch, 'test')
-    test_dict, print_str = multiview_test(fea, lab)
-    print(print_str)
+    # print('Evaluation on Last Epoch:')
+    # fea, lab = eval(test_loader, epoch, 'test')
+    # test_dict, print_str = multiview_test(fea, lab)
+    # print(print_str)
 
     print('Evaluation on Best Validation:')
     [multi_models[v].load_state_dict(multi_model_state_dict[v]) for v in range(n_view)]
