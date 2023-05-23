@@ -3,7 +3,7 @@ import os
 import torch
 # import numpy as np
 # import os
-# # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 # import torch
 from utils.config import args
 import torch.optim as optim
@@ -33,6 +33,7 @@ args.ckpt_dir = os.path.join(args.root_dir, 'ckpt', args.ckpt_dir)
 
 os.makedirs(args.log_dir, exist_ok=True)
 os.makedirs(args.ckpt_dir, exist_ok=True)
+
 
 def load_dict(model, path):
     chp = torch.load(path)
@@ -185,9 +186,11 @@ def main():
         res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
         return torch.sum(res, dim=1)
 
+
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
+        result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
         select_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
@@ -218,6 +221,8 @@ def main():
             C.data = t.t()
 
             preds = [outputs[v].mm(C) for v in range(n_view)]
+            for v in range(n_view):
+                result[v][index] = preds[v].cpu().detach().numpy()
             s_CE_loss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
             s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
@@ -238,7 +243,9 @@ def main():
             bmm_B.fit(loss_t)
             prob_B = bmm_A.posterior(loss_t, 0).T.squeeze()
 
-            select_num = len(prob_A) // 10
+            reset_rate = 0.4
+            select_num = int(reset_rate * len(prob_A))
+            # select_num = len(prob_A) // 15
             threshld_A = np.sort(prob_A)[::-1][select_num]
             threshld_B = np.sort(prob_B)[::-1][select_num]
             # if epoch>3:
@@ -246,13 +253,17 @@ def main():
             pred_B = (prob_B > threshld_B).squeeze()
 
             # pred = np.hstack((pred_A, pred_B)).T.squeeze()
-            selected = [pred_A, pred_B]
+            selected = [~pred_A, ~pred_B]
             inputs_x =  [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             targets_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             inputs_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             targets_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             outputs_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             all_inputs = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+
+            for v in range(n_view):
+                ss = index[selected[v]]
+                select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
 
             classes = torch.arange(0, train_dataset.class_num, 1).cuda()
             added = [torch.cat([targets[v], classes], dim=0) for v in range(n_view)]
@@ -301,11 +312,6 @@ def main():
 
             lx_loss = torch.cat(Lx)
 
-            for v in range(n_view):
-                ss = index[selected[v]]
-                select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
-
-            train_dataset.testClean(select_idx)
 
 
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
@@ -313,7 +319,8 @@ def main():
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss_all = 0.7 * s_CE_loss+ 1 * contrastiveLoss + 0.3 * lx_loss
+            loss_all = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
+            # loss_all = 0.7 * s_CE_loss+  * contrastiveLoss + 0.3 * lx_loss
             ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             loss_sorted = loss_all[ind_sorted]
             remember_rate = 1
@@ -336,7 +343,9 @@ def main():
                 correct_list[v] += acc
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f | LR: %g'
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
-
+        train_dataset.testClean(select_idx)
+        if epoch > 6:
+            train_dataset.reset1(result, select_idx)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
         summary_writer.add_scalars('Loss/train', train_dict, epoch)
