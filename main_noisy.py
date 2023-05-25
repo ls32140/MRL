@@ -306,8 +306,8 @@ def main():
                 select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
 
 
-            # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
