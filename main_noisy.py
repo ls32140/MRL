@@ -110,8 +110,8 @@ def main():
         criterion = torch.nn.CrossEntropyLoss().cuda()
         criterion_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
     elif args.loss == 'smoothCE':
-        criterion = smoothCE(0.1, 10)
-        criterion_no_mean = smoothCE(0.1, 10, 1)
+        criterion = smoothCE(0.1, train_dataset.class_num)
+        criterion_no_mean = smoothCE(0.1, train_dataset.class_num, 1)
     elif args.loss == 'MCE':
         criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
     else:
@@ -344,8 +344,8 @@ def main():
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f | LR: %g'
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
         train_dataset.testClean(select_idx)
-        if epoch > 6:
-            train_dataset.reset1(result, select_idx)
+        # if epoch > 4:
+        #     train_dataset.reset1(result, select_idx)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
         summary_writer.add_scalars('Loss/train', train_dict, epoch)

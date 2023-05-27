@@ -108,20 +108,20 @@ class cross_modal_dataset(data.Dataset):
             else:
                 data = sio.loadmat(path)
                 if self.mode == 'train':
-                    train_data = [data['tr_img'].astype('float32'),
-                                  data['tr_text'].astype('float32')]
-                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
-                                   data['tr_label'].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_img'][:2173].astype('float32'),
+                                  data['tr_text'][:2173].astype('float32')]
+                    train_label = [data['tr_label'].reshape([-1]).astype('int64')[:2173],
+                                   data['tr_label'].reshape([-1]).astype('int64')[:2173]]
                 elif self.mode == 'valid':
-                    train_data = [data['te_img'][0: valid_len].astype('float32'),
-                                  data['te_text'][0: valid_len].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1])[0: valid_len].astype('int64'),
-                                   data['te_label'].reshape([-1])[0: valid_len].reshape([-1]).astype('int64')]
+                    train_data = [data['te_img'][0: valid_len][:231].astype('float32'),
+                                  data['te_text'][0: valid_len][:231].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1])[0: valid_len][:231].astype('int64'),
+                                   data['te_label'].reshape([-1])[0: valid_len][:231].reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
-                    train_data = [data['te_img'][valid_len:].astype('float32'),
-                                  data['te_text'][valid_len:].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1])[valid_len:].astype('int64'),
-                                   data['te_label'].reshape([-1])[valid_len:].reshape([-1]).astype('int64')]
+                    train_data = [data['te_img'][valid_len:][:462].astype('float32'),
+                                  data['te_text'][valid_len:][:462].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1])[valid_len:][:462].astype('int64'),
+                                   data['te_label'].reshape([-1])[valid_len:][:462].astype('int64')]
                 else:
                     raise Exception('Have no such set mode!')
         else:
@@ -140,14 +140,14 @@ class cross_modal_dataset(data.Dataset):
                     raise Exception('Have no such set mode!')
             else:
                 if self.mode == 'train':
-                    train_data = [data['tr_fc6'][valid_len:].astype('float32'), data['tr_text'][valid_len:].astype('float32')]
-                    train_label = [data['tr_label'][valid_len:].reshape([-1]).astype('int64'), data['tr_label'][valid_len:].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_fc6'][valid_len:][:2173].astype('float32'), data['tr_text'][valid_len:][:2173].astype('float32')]
+                    train_label = [data['tr_label'][valid_len:][:2173].reshape([-1]).astype('int64'), data['tr_label'][valid_len:][:2173].reshape([-1]).astype('int64')]
                 elif self.mode == 'valid':
-                    train_data = [data['tr_fc6'][0: valid_len].astype('float32'), data['tr_text'][0: valid_len].astype('float32')]
-                    train_label = [data['tr_label'][0: valid_len].reshape([-1]).astype('int64'), data['tr_label'][0: valid_len].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_fc6'][0: valid_len][:231].astype('float32'), data['tr_text'][0: valid_len][:231].astype('float32')]
+                    train_label = [data['tr_label'][0: valid_len][:231].reshape([-1]).astype('int64'), data['tr_label'][0: valid_len][:231].reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
-                    train_data = [data['te_fc6'].astype('float32'), data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'), data['te_label'].reshape([-1]).astype('int64')]
+                    train_data = [data['te_fc6'][:462].astype('float32'), data['te_text'][:462].astype('float32')]
+                    train_label = [data['te_label'][:462].reshape([-1]).astype('int64'), data['te_label'][:462].reshape([-1]).astype('int64')]
                 else:
                     raise Exception('Have no such set mode!')
 
@@ -162,6 +162,7 @@ class cross_modal_dataset(data.Dataset):
         if self.mode == 'train':
             if os.path.exists(noise_file):
                 noise_label = json.load(open(noise_file, "r"))
+                noise_label = [noise_label[v][:2173] for v in range(len(train_data))]
                 self.class_num = np.unique(noise_label).shape[0]
             else:    #inject noise
                 noise_label = []
@@ -191,12 +192,12 @@ class cross_modal_dataset(data.Dataset):
                                 noise_label_tmp.append(noiselabel)
                         else:
                             noise_label_tmp.append(int(self.train_label[v][i]))
-                    noise_label.append(noise_label_tmp)
+                    noise_label.append(noise_label_tmp[:2173])
                 # print("save noisy labels to %s ..." % noise_file)
                 json.dump(noise_label, open(noise_file, "w"))
 
         self.default_train_data = train_data
-        self.default_noise_label = np.array(noise_label)
+        self.default_noise_label = np.array([noise_label[v][:2173] for v in range(len(train_data))])
         self.train_data = self.default_train_data
         self.noise_label = self.default_noise_label
         if pred:
