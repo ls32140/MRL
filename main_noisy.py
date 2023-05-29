@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import torch
+#Bmm+校正
 # import numpy as np
 # import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '1'
@@ -110,8 +111,8 @@ def main():
         criterion = torch.nn.CrossEntropyLoss().cuda()
         criterion_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
     elif args.loss == 'smoothCE':
-        criterion = smoothCE(0.1, 10)
-        criterion_no_mean = smoothCE(0.1, 10, 1)
+        criterion = smoothCE(0.1, train_dataset.class_num)
+        criterion_no_mean = smoothCE(0.1, train_dataset.class_num, 1)
     elif args.loss == 'MCE':
         criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
     else:
@@ -119,7 +120,7 @@ def main():
 
     summary_writer = SummaryWriter(args.log_dir)
 
-    def entropyLoss(a,tar): # 两个向量的交叉熵
+    def entropyLoss(a, tar): # 两个向量的交叉熵
         logsoftmax = torch.nn.LogSoftmax(dim=1)
         res = -tar * logsoftmax(a)
         return torch.sum(res, dim=1)
@@ -319,8 +320,8 @@ def main():
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss_all = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
-            # loss_all = 0.7 * s_CE_loss+  * contrastiveLoss + 0.3 * lx_loss
+            # loss_all = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
+            loss_all = 0.7 * s_CE_loss + 1 * contrastiveLoss + 0.3 * lx_loss
             ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             loss_sorted = loss_all[ind_sorted]
             remember_rate = 1
@@ -344,8 +345,8 @@ def main():
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f | LR: %g'
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
         train_dataset.testClean(select_idx)
-        if epoch > 6:
-            train_dataset.reset1(result, select_idx)
+        # if epoch > 150:
+        #     train_dataset.reset1(result, select_idx)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
         summary_writer.add_scalars('Loss/train', train_dict, epoch)
