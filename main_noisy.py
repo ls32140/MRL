@@ -192,6 +192,7 @@ def main():
         set_train()
         result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
         select_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
+        select_idx2 = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
@@ -243,18 +244,43 @@ def main():
             bmm_B.fit(loss_t)
             prob_B = bmm_A.posterior(loss_t, 0).T.squeeze()
 
-            reset_rate = 0.4
-            select_num = int(reset_rate * len(prob_A))
-            # select_num = len(prob_A) // 15
-            threshld_A = np.sort(prob_A)[::-1][select_num]
-            threshld_B = np.sort(prob_B)[::-1][select_num]
-            # if epoch>3:
-            pred_A = (prob_A > threshld_A).squeeze()
-            pred_B = (prob_B > threshld_B).squeeze()
+            #校正
+            reset_rate = 0.6
+            select_num2 = int(reset_rate * len(prob_A))
+            threshld_A = np.sort(prob_A)[select_num2]
+            threshld_B = np.sort(prob_B)[select_num2]
+            pred_A = (prob_A < threshld_A).squeeze()
+            pred_B = (prob_B < threshld_B).squeeze()
+            selected2 = [pred_A, pred_B]
 
-            # pred = np.hstack((pred_A, pred_B)).T.squeeze()
-            selected = [~pred_A, ~pred_B]
-            inputs_x =  [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            #mix
+            select_num = len(prob_A) // 5
+            prob = [prob_A, prob_B]
+            num_class = train_dataset.class_num
+            class_len = int(select_num / num_class)
+            size_pred = [0, 0]
+            pred_idx = [np.zeros(select_num) for i in range(n_view)]
+
+            class_ind = [{} for i in range(n_view)]
+            for kk in range(num_class):
+                for v in range(n_view):
+                    class_ind[v][kk] = [i for i in range(len(targets[v])) if targets[v][i] == kk]
+
+            # Creating the Class Balance
+            for v in range(n_view):
+                for i in range(num_class):
+                    class_indices = class_ind[v][i]
+                    prob1 = np.argsort(prob[v][class_indices])[::-1]
+                    size1 = len(class_indices)
+                    if (len(prob1) < class_len):
+                        pred_idx[v][size_pred[v]:size_pred[v] + size1] = np.array(class_indices)
+                        size_pred[v] += size1
+                    else:
+                        pred_idx[v][size_pred[v]:size_pred[v] + class_len] = np.array(class_indices)[
+                            prob1[0:class_len].astype(int)].squeeze()
+                        size_pred[v] += class_len
+            selected = [pred_idx[v][:size_pred[v]].astype(int) for v in range(n_view)]
+            inputs_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             targets_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             inputs_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             targets_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
@@ -263,7 +289,9 @@ def main():
 
             for v in range(n_view):
                 ss = index[selected[v]]
+                s2 = index[selected2[v]]
                 select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
+                select_idx2[v] = torch.cat([select_idx2[v], s2], dim=0)
 
             classes = torch.arange(0, train_dataset.class_num, 1).cuda()
             added = [torch.cat([targets[v], classes], dim=0) for v in range(n_view)]
@@ -273,9 +301,11 @@ def main():
             for v in range(n_view):
                 inputs_x[v] = batches[v][selected[v]]
                 targets_x[v] = all_targets[v][selected[v]]
-                inputs_u[v] = batches[v][~selected[v]]
-                outputs_u[v] = preds[v][~selected[v]]
-                targets_u[v] = all_targets[v][~selected[v]]
+                mask = np.ones(batch_size, np.bool_)
+                mask[selected[v]] = False
+                inputs_u[v] = batches[v][mask]
+                outputs_u[v] = preds[v][mask]
+                targets_u[v] = all_targets[v][mask]
 
                 all_inputs[v] = torch.cat([inputs_x[v], inputs_u[v]], dim=0).cuda()
                 targets_x[v] = torch.from_numpy(targets_x[v])
@@ -312,15 +342,13 @@ def main():
 
             lx_loss = torch.cat(Lx)
 
-
-
             # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss_all = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
-            # loss_all = 0.7 * s_CE_loss+  * contrastiveLoss + 0.3 * lx_loss
+            # loss_all = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
+            loss_all = 0.7 * s_CE_loss+  1* contrastiveLoss + 0.3 * lx_loss
             ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             loss_sorted = loss_all[ind_sorted]
             remember_rate = 1
@@ -343,9 +371,10 @@ def main():
                 correct_list[v] += acc
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f | LR: %g'
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
+
         train_dataset.testClean(select_idx)
-        # if epoch > 4:
-        #     train_dataset.reset1(result, select_idx)
+        if epoch > 20:
+            train_dataset.reset1(result, select_idx2)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
         summary_writer.add_scalars('Loss/train', train_dict, epoch)
@@ -507,10 +536,10 @@ def main():
             multi_model_state_dict = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in multi_models]
             W_best = C.clone()
 
-    # print('Evaluation on Last Epoch:')
-    # fea, lab = eval(test_loader, epoch, 'test')
-    # test_dict, print_str = multiview_test(fea, lab)
-    # print(print_str)
+    print('Evaluation on Last Epoch:')
+    fea, lab = eval(test_loader, epoch, 'test')
+    test_dict, print_str = multiview_test(fea, lab)
+    print(print_str)
 
     print('Evaluation on Best Validation:')
     [multi_models[v].load_state_dict(multi_model_state_dict[v]) for v in range(n_view)]

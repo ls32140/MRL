@@ -205,6 +205,7 @@ class cross_modal_dataset(data.Dataset):
         else:
             self.prob = None
 
+    # 选中的数据，有多少是干净的 （选中干净/选中）
     def testClean(self, idx):
         n_view = len(self.train_data)
         s = []
@@ -217,7 +218,7 @@ class cross_modal_dataset(data.Dataset):
         num=np.sum(p)
         rio = num / len(p)
         print(num, len(p))
-        print("rio:",rio)
+        print("选中干净/选中:",rio)
 
     def reset1(self, pred, idx):
         n_view = len(self.train_data)
@@ -229,6 +230,7 @@ class cross_modal_dataset(data.Dataset):
         num = np.sum(cnt_array)
         ppp = self.train_data[0].shape[0] * 2
         rio = num / ppp
+        print(num, ppp)
         print("resetrio:", rio)
     def reset(self, pred, prob, mode='labeled'):
         if pred is None:
