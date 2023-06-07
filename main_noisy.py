@@ -109,8 +109,8 @@ def main():
         criterion = torch.nn.CrossEntropyLoss().cuda()
         criterion_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
     elif args.loss == 'smoothCE':
-        criterion = smoothCE(0.1, 10)
-        criterion_no_mean = smoothCE(0.1, 10, 1)
+        criterion = smoothCE(0.1, train_dataset.class_num)
+        criterion_no_mean = smoothCE(0.1, train_dataset.class_num, 1)
     elif args.loss == 'MCE':
         criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
     else:
