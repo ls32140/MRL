@@ -47,6 +47,9 @@ class cross_modal_dataset(data.Dataset):
             root_dir = os.path.join(root_dir, 'XMediaNet')
             path = os.path.join(root_dir, 'xmedianet_deep_doc2vec_data.h5py')
             valid_len = 4000
+        elif 'ps' in dataset.lower():
+            root_dir = os.path.join(root_dir, 'ps')
+            path = os.path.join(root_dir, 'ps.mat')
         else:
             raise Exception('Have no such dataset!')
 
@@ -104,6 +107,24 @@ class cross_modal_dataset(data.Dataset):
                 else:
                     raise Exception('Have no such set mode!')
                 h.close()
+            elif 'ps' in dataset.lower():
+                data = sio.loadmat(path)
+                if self.mode == 'train':
+                    train_data = [data['tr_fc6'].astype('float32'),
+                                  data['tr_text'].astype('float32')]
+                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
+                                   data['tr_label'].reshape([-1]).astype('int64')]
+                elif self.mode == 'valid':
+                    train_data = [data['v_fc6'].astype('float32'),
+                                  data['v_text'].astype('float32')]
+                    train_label = [data['v_label'].reshape([-1]).astype('int64'),
+                                   data['v_label'].reshape([-1]).astype('int64')]
+                elif self.mode == 'test':
+                    train_data = [data['te_fc6'].astype('float32'), data['te_text'].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                                   data['te_label'].reshape([-1]).astype('int64')]
+                else:
+                    raise Exception('Have no such set mode!')
             else:
                 data = sio.loadmat(path)
                 if self.mode == 'train':
