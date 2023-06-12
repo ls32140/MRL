@@ -25,6 +25,7 @@ parser.add_argument('--output_dim', type=int, default=512, help='output shape')
 parser.add_argument('--noisy_ratio', type=float, default=0.6) # 0.2 0.4 0.6 0.8
 parser.add_argument('--beta', type=float, default=0.5)
 parser.add_argument('--tau', type=float, default=1.)
+parser.add_argument('--lambda_u', default=50, type=float, help='weight for unsupervised loss')
 parser.add_argument('--optimizer', type=str, default='Adam')
 parser.add_argument('--views', nargs='+', help='<Required> Quantization bits', default=['Img', 'Txt', 'Audio', '3D', 'Video']) #Img, Txt, Audio, 3D, Video
 
