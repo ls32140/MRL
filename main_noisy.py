@@ -34,6 +34,17 @@ args.ckpt_dir = os.path.join(args.root_dir, 'ckpt', args.ckpt_dir)
 os.makedirs(args.log_dir, exist_ok=True)
 os.makedirs(args.ckpt_dir, exist_ok=True)
 
+def linear_rampup(current, warm_up, rampup_length=16):
+    current = np.clip((current-warm_up) / rampup_length, 0.0, 1.0)
+    return args.lambda_u*float(current)
+class SemiLoss(object):
+    def __call__(self, outputs_x, targets_x, outputs_u, targets_u, epoch, warm_up):
+        probs_u = torch.softmax(outputs_u, dim=1)
+        Lx = -torch.mean(torch.sum(F.log_softmax(outputs_x, dim=1) * targets_x, dim=1))
+        Lu = torch.mean((probs_u - targets_u)**2)
+
+        return Lx, Lu, linear_rampup(epoch,warm_up)
+semiLoss = SemiLoss()
 
 def load_dict(model, path):
     chp = torch.load(path)
@@ -186,7 +197,7 @@ def main():
         res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
         return torch.sum(res, dim=1)
 
-
+    num_iter = (len(train_loader.dataset) // args.train_batch_size) + 1
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
@@ -327,37 +338,45 @@ def main():
             mixed_input = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             mixed_target = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             logits = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            logits_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            logits_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             Lx = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            Lu = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            lamb = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            seimloss = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             prior = torch.ones(train_dataset.class_num) / train_dataset.class_num
             prior = prior.cuda()
             for v in range(n_view):
                 mixed_input[v] = l * all_inputs[v] + (1 - l) * all_inputs[v][idx]
                 mixed_target[v] = l * all_targets[v] + (1 - l) * all_targets[v][idx]
                 logits[v] = multi_models[v](mixed_input[v]).mm(C)
+                logits_x[v] = logits[v][:select_num]
+                logits_u[v] = logits[v][select_num:]
 
-                # pred_mean = torch.softmax(logits[v], dim=1).mean(0)
-                # penalty = torch.sum(prior * torch.log(prior / pred_mean))
+                pred_mean = torch.softmax(logits[v], dim=1).mean(0)
+                penalty = torch.sum(prior * torch.log(prior / pred_mean))
+                Lx[v], Lu[v], lamb[v] = semiLoss(logits_x[v], mixed_target[v][:select_num], logits_u[v],
+                                                 mixed_target[v][select_num:], epoch + 1 + batch_idx / num_iter, 0)
+                seimloss[v] = Lx[v] + lamb[v] * 0.5 * Lu[v] + penalty
 
-                Lx[v] = entropyLoss(logits[v],mixed_target[v]) # + penalty
+            lx_loss = seimloss[0] + seimloss[1]
 
-            lx_loss = torch.cat(Lx)
-
-            # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
             # loss_all = (args.beta * s_CE_loss + (1. - args.beta) * contrastiveLoss).cpu()
-            loss_all = 0.7 * s_CE_loss+  1* contrastiveLoss + 0.3 * lx_loss
-            ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
-            loss_sorted = loss_all[ind_sorted]
-            remember_rate = 1
+            loss = 0.8 * torch.mean(s_CE_loss) + 0.7 * torch.mean(contrastiveLoss) + 0.1* lx_loss
+            # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
+            # loss_sorted = loss_all[ind_sorted]
+            # remember_rate = 1
             # remember_rate = 1 - min((epoch + 2) / 10 * args.noisy_ratio, args.noisy_ratio)
             # if epoch < 5:
             #     remember_rate = 1
-            num_remember = int(remember_rate * len(loss_sorted))
-            ind_update = ind_sorted[:num_remember]
-            loss = torch.mean(loss_all[ind_update])
+            # num_remember = int(remember_rate * len(loss_sorted))
+            # ind_update = ind_sorted[:num_remember]
+            # loss = torch.mean(loss_all[ind_update])
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
@@ -373,7 +392,7 @@ def main():
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
 
         train_dataset.testClean(select_idx)
-        if epoch > 20:
+        if epoch > 17:
             train_dataset.reset1(result, select_idx2)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
