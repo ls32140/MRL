@@ -331,7 +331,7 @@ def main():
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss = 0.7 * torch.mean(s_CE_loss) + 1 * torch.mean(contrastiveLoss) + 0.5 * lx_loss
+            loss = 0.8 * torch.mean(s_CE_loss) + 0.6 * torch.mean(contrastiveLoss) + 0.3 * lx_loss
             # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             # loss_sorted = loss_all[ind_sorted]
             # remember_rate = 1
