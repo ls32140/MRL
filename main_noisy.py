@@ -15,6 +15,13 @@ import nets as models
 from utils.bar_show import progress_bar
 from src.noisydataset import cross_modal_dataset
 from src.smoothCE import smoothCE
+from src.loss import SCELoss
+from src.loss import NCEandRCE
+from src.loss import GeneralizedCrossEntropy
+from src.loss import NormalizedGeneralizedCrossEntropy
+from src.loss import NFLandRCE
+from src.loss import NGCEandMAE
+from src.loss import NCEandAUE
 from src.bmm import BetaMixture1D
 import src.utils as utils
 import scipy
@@ -24,7 +31,6 @@ from sklearn.mixture import GaussianMixture as GMM
 import torch.nn.functional as F
 from sklearn.preprocessing import LabelBinarizer
 
-save_dir = 'aum'
 best_acc = 0  # best test accuracy
 start_epoch = 0
 
@@ -125,6 +131,28 @@ def main():
     elif args.loss == 'MCE':
         criterion = utils.MeanClusteringError(train_dataset.class_num,None ,tau=args.tau).cuda()
         criterion_no_mean = utils.MeanClusteringError(train_dataset.class_num,1 , tau=args.tau).cuda()
+    elif args.loss == 'APL':
+        criterion = NCEandRCE(1, 1, train_dataset.class_num)
+        criterion_no_mean = NCEandRCE(1, 1, train_dataset.class_num, 1)
+    elif args.loss == 'SCE':
+        criterion = SCELoss(train_dataset.class_num,0.1, 1)
+        criterion_no_mean = SCELoss(train_dataset.class_num,0.1, 1, 1)
+    elif args.loss == 'GCE':
+        criterion = GeneralizedCrossEntropy(train_dataset.class_num, 0.7)
+        criterion_no_mean = GeneralizedCrossEntropy(train_dataset.class_num, 0.7, 1)
+    elif args.loss == 'NGCE':
+        criterion = NormalizedGeneralizedCrossEntropy(train_dataset.class_num, 1, 0.7)
+        criterion_no_mean = NormalizedGeneralizedCrossEntropy(train_dataset.class_num, 1, 0.7, 1)
+    elif args.loss == 'NFLandRCE':
+        criterion = NFLandRCE(1, 1, train_dataset.class_num,0.5)
+        criterion_no_mean = NFLandRCE(1, 1, train_dataset.class_num,0.5, 1)
+    elif args.loss == 'NGCEandMAE':
+        criterion = NGCEandMAE(1, 1, train_dataset.class_num,0.7)
+        criterion_no_mean = NGCEandMAE(1, 1, train_dataset.class_num,0.7, 1)
+    elif args.loss == 'NCEandAUE':
+        criterion = NCEandAUE(1,1,train_dataset.class_num,6,1.5)
+        criterion_no_mean = NCEandAUE(1,1,train_dataset.class_num,6,1.5,onMean=1)
+
     else:
         raise Exception('No such loss function.')
 
@@ -346,7 +374,7 @@ def main():
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss = 0.8 * torch.mean(s_CE_loss) + 0.4 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
+            loss = 1 * torch.mean(s_CE_loss) + 0.8 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
             # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             # loss_sorted = loss_all[ind_sorted]
             # remember_rate = 1
