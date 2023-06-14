@@ -174,7 +174,6 @@ class cross_modal_dataset(data.Dataset):
                 else:
                     raise Exception('Have no such set mode!')
 
-
         self.train_label = [la.astype('int64') for la in train_label]
         noise_label = self.train_label
         if noise_file is None:
@@ -186,7 +185,7 @@ class cross_modal_dataset(data.Dataset):
             if os.path.exists(noise_file):
                 noise_label = json.load(open(noise_file, "r"))
                 self.class_num = np.unique(noise_label).shape[0]
-            else:    #inject noise
+            else:  # inject noise
                 noise_label = []
                 classes = np.unique(self.train_label[0])
                 class_num = classes.shape[0]
@@ -207,7 +206,7 @@ class cross_modal_dataset(data.Dataset):
                     for i in range(data_num):
                         if i in noise_idx:
                             if noise_mode == 'sym':
-                                noiselabel = int(random.randint(0, class_num-1))
+                                noiselabel = int(random.randint(0, class_num - 1))
                                 noise_label_tmp.append(noiselabel)
                             elif noise_mode == 'asym':
                                 noiselabel = self.transition[self.train_label[v][i]]
@@ -227,6 +226,8 @@ class cross_modal_dataset(data.Dataset):
         else:
             self.prob = None
 
+        # 选中的数据，有多少是干净的 （选中干净/选中）
+
     def testClean(self, idx):
         n_view = len(self.train_data)
         s = []
@@ -235,11 +236,24 @@ class cross_modal_dataset(data.Dataset):
             a = self.noise_label[v][id] - self.train_label[v][id]
             cnt_array = np.where(a, 0, 1)
             s.append(cnt_array)
-        p= np.hstack(s)
-        num=np.sum(p)
+        p = np.hstack(s)
+        num = np.sum(p)
         rio = num / len(p)
         print(num, len(p))
-        print("rio:",rio)
+        print("选中干净/选中:", rio)
+
+    def reset1(self, pred, idx):
+        n_view = len(self.train_data)
+        for v in range(n_view):
+            id = idx[v]
+            self.noise_label[v][id] = pred[v].argmax(1)[id]
+        s = self.noise_label - self.train_label
+        cnt_array = np.where(s, 0, 1)
+        num = np.sum(cnt_array)
+        ppp = self.train_data[0].shape[0] * 2
+        rio = num / ppp
+        print(num, ppp)
+        print("resetrio:", rio)
 
     def reset(self, pred, prob, mode='labeled'):
         if pred is None:

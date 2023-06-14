@@ -98,13 +98,13 @@ def main():
             multi_models.append(models.__dict__['ImageNet'](input_dim=train_dataset.train_data[v].shape[1], output_dim=args.output_dim).cuda())
 
     C = torch.Tensor(args.output_dim, args.output_dim)
-    C = torch.nn.init.orthogonal(C, gain=1)[:, 0: train_dataset.class_num]
-    C.requires_grad = False
+    C = torch.nn.init.orthogonal(C, gain=1)[:, 0: train_dataset.class_num].cuda()
+    C.requires_grad = True
 
     embedding = torch.eye(train_dataset.class_num).cuda()
     embedding.requires_grad = False
 
-    parameters = []
+    parameters = [C]
     for v in range(n_view):
         parameters += list(multi_models[v].parameters())
     if args.optimizer == 'SGD':
@@ -123,7 +123,8 @@ def main():
         criterion = smoothCE(0.1, train_dataset.class_num)
         criterion_no_mean = smoothCE(0.1, train_dataset.class_num, 1)
     elif args.loss == 'MCE':
-        criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
+        criterion = utils.MeanClusteringError(train_dataset.class_num,None ,tau=args.tau).cuda()
+        criterion_no_mean = utils.MeanClusteringError(train_dataset.class_num,1 , tau=args.tau).cuda()
     else:
         raise Exception('No such loss function.')
 
@@ -200,7 +201,9 @@ def main():
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
+        result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
         select_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
+        # select_idx2 = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
@@ -214,22 +217,24 @@ def main():
             optimizer.zero_grad()
             outputs = [multi_models[v](batches[v]) for v in range(n_view)]
 
-            c = list()
-            for cla in range(train_dataset.class_num):
-                select_list = list()
-                for v in range(n_view):
-                    idx = torch.nonzero(targets[v] == cla).ravel()
-                    select_list.append(torch.index_select(outputs[v], dim=0, index=idx))
-                selects = torch.cat(select_list)
-                if (len(selects)):
-                    val = (torch.sum(selects, dim=0) / len(selects))
-                else:
-                    val = C[..., cla].cuda().t()
-                c.append(val)
-            t = torch.stack(c)
-            C.data = t.t()
+            # c = list()
+            # for cla in range(train_dataset.class_num):
+            #     select_list = list()
+            #     for v in range(n_view):
+            #         idx = torch.nonzero(targets[v] == cla).ravel()
+            #         select_list.append(torch.index_select(outputs[v], dim=0, index=idx))
+            #     selects = torch.cat(select_list)
+            #     if (len(selects)):
+            #         val = (torch.sum(selects, dim=0) / len(selects))
+            #     else:
+            #         val = C[..., cla].cuda().t()
+            #     c.append(val)
+            # t = torch.stack(c)
+            # C.data = t.t()
 
             preds = [outputs[v].mm(C) for v in range(n_view)]
+            for v in range(n_view):
+                result[v][index] = preds[v].cpu().detach().numpy()
             s_CE_loss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
             s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
@@ -250,15 +255,23 @@ def main():
             bmm_B.fit(loss_t)
             prob_B = bmm_A.posterior(loss_t, 0).T.squeeze()
 
-            select_num = len(prob_A) // 10
+            # 校正
+            # reset_rate = args.noisy_ratio
+            # select_num2 = int(reset_rate * len(prob_A))
+            # threshld_A1 = np.sort(prob_A)[select_num2]
+            # threshld_B1 = np.sort(prob_B)[select_num2]
+            # pred_A1 = (prob_A < threshld_A1).squeeze()
+            # pred_B1 = (prob_B < threshld_B1).squeeze()
+            # selected2 = [pred_A1, pred_B1]
+
+            #mix
+            select_num = len(prob_A) // 8
             threshld_A = np.sort(prob_A)[::-1][select_num]
             threshld_B = np.sort(prob_B)[::-1][select_num]
-            # if epoch>3:
             pred_A = (prob_A > threshld_A).squeeze()
             pred_B = (prob_B > threshld_B).squeeze()
-
-            # pred = np.hstack((pred_A, pred_B)).T.squeeze()
             selected = [pred_A, pred_B]
+
             inputs_x =  [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             targets_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
             inputs_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
@@ -317,13 +330,15 @@ def main():
                 penalty = torch.sum(prior * torch.log(prior / pred_mean))
                 Lx[v], Lu[v], lamb[v] = semiLoss(logits_x[v], mixed_target[v][:select_num], logits_u[v],
                                          mixed_target[v][select_num:], epoch+1 + batch_idx / num_iter, 0)
-                seimloss[v] = Lx[v] + lamb[v]*0.2 * Lu[v] + penalty
+                seimloss[v] = Lx[v] + lamb[v]*0.3 * Lu[v] + penalty
 
             lx_loss = seimloss[0] + seimloss[1]
 
             for v in range(n_view):
                 ss = index[selected[v]]
+                # s2 = index[selected2[v]]
                 select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
+                # select_idx2[v] = torch.cat([select_idx2[v], s2], dim=0)
 
 
             contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
@@ -331,7 +346,7 @@ def main():
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss = 0.8 * torch.mean(s_CE_loss) + 0.6 * torch.mean(contrastiveLoss) + 0.3 * lx_loss
+            loss = 0.8 * torch.mean(s_CE_loss) + 0.4 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
             # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             # loss_sorted = loss_all[ind_sorted]
             # remember_rate = 1
@@ -356,6 +371,8 @@ def main():
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
 
         train_dataset.testClean(select_idx)
+        # if epoch > 35:
+        #     train_dataset.reset1(result, select_idx2)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
         summary_writer.add_scalars('Loss/train', train_dict, epoch)
@@ -517,10 +534,10 @@ def main():
             multi_model_state_dict = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in multi_models]
             W_best = C.clone()
 
-    # print('Evaluation on Last Epoch:')
-    # fea, lab = eval(test_loader, epoch, 'test')
-    # test_dict, print_str = multiview_test(fea, lab)
-    # print(print_str)
+    print('Evaluation on Last Epoch:')
+    fea, lab = eval(test_loader, epoch, 'test')
+    test_dict, print_str = multiview_test(fea, lab)
+    print(print_str)
 
     print('Evaluation on Best Validation:')
     [multi_models[v].load_state_dict(multi_model_state_dict[v]) for v in range(n_view)]
