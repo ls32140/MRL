@@ -185,6 +185,8 @@ def main():
         fea, lab = [[] for _ in range(n_view)], [[] for _ in range(n_view)]
         test_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
         with torch.no_grad():
+            a = sum([data_loader.dataset.train_data[v].shape[0] != data_loader.dataset.train_data[0].shape[0] for v in
+                 range(len(data_loader.dataset.train_data))])
             if sum([data_loader.dataset.train_data[v].shape[0] != data_loader.dataset.train_data[0].shape[0] for v in range(len(data_loader.dataset.train_data))]) == 0:
                 for batch_idx, (batches, targets, index) in enumerate(data_loader):
                     batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
