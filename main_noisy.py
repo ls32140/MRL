@@ -330,7 +330,7 @@ def main():
                 penalty = torch.sum(prior * torch.log(prior / pred_mean))
                 Lx[v], Lu[v], lamb[v] = semiLoss(logits_x[v], mixed_target[v][:select_num], logits_u[v],
                                          mixed_target[v][select_num:], epoch+1 + batch_idx / num_iter, 0)
-                seimloss[v] = Lx[v] + lamb[v]*0.3 * Lu[v] + penalty
+                seimloss[v] = Lx[v] + lamb[v]*0.5 * Lu[v] + penalty
 
             lx_loss = seimloss[0] + seimloss[1]
 
@@ -341,12 +341,12 @@ def main():
                 # select_idx2[v] = torch.cat([select_idx2[v], s2], dim=0)
 
 
-            # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss = 0.7 * torch.mean(s_CE_loss) + 0.3 * torch.mean(contrastiveLoss) #+ 0.1 * lx_loss
+            loss = 0.7 * torch.mean(s_CE_loss) + 0.4 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
             # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             # loss_sorted = loss_all[ind_sorted]
             # remember_rate = 1
