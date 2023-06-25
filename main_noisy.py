@@ -340,10 +340,10 @@ def main():
             multi_model_state_dict = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in multi_models]
             W_best = C.clone()
 
-    # print('Evaluation on Last Epoch:')
-    # fea, lab = eval(test_loader, epoch, 'test')
-    # test_dict, print_str = multiview_test(fea, lab)
-    # print(print_str)
+    print('Evaluation on Last Epoch:')
+    fea, lab = eval(test_loader, epoch, 'test')
+    test_dict, print_str = multiview_test(fea, lab)
+    print(print_str)
 
     print('Evaluation on Best Validation:')
     [multi_models[v].load_state_dict(multi_model_state_dict[v]) for v in range(n_view)]

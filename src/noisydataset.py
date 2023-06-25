@@ -37,7 +37,7 @@ class cross_modal_dataset(data.Dataset):
             valid_len = 5000
         elif 'inria' in dataset.lower():
             root_dir = os.path.join(root_dir, 'INRIA-Websearch')
-            path = os.path.join(root_dir, 'inria.mat')
+            path = os.path.join(root_dir, 'inria6.mat')
             doc2vec = False
             valid_len = 1332
         elif 'xmedianet4view' in dataset.lower():
@@ -50,8 +50,8 @@ class cross_modal_dataset(data.Dataset):
         #     valid_len = 4000
         elif 'xmedianet' in dataset.lower():
             root_dir = os.path.join(root_dir, 'xmedianet')
-            path = os.path.join(root_dir, 'xmedianet_clip.mat')
-            valid_len = 2000
+            path = os.path.join(root_dir, 'xmedianet2.mat')
+            valid_len = 4000
             doc2vec = False
         elif 'ps' in dataset.lower():
             root_dir = os.path.join(root_dir, 'ps')
