@@ -30,7 +30,7 @@ class cross_modal_dataset(data.Dataset):
             root_dir = os.path.join(root_dir, 'wiki')
             path = os.path.join(root_dir, 'wiki_clip.mat')
             # path = os.path.join(root_dir, 'wiki_deep_doc2vec_data_corr_ae.h5py')  # wiki_deep_doc2vec_data
-            valid_len = 131
+            # valid_len = 131
         elif 'nus' in dataset.lower():
             root_dir = os.path.join(root_dir, 'nuswide')
             path = os.path.join(root_dir, 'nuswide-42941-1k.mat')
@@ -121,15 +121,15 @@ class cross_modal_dataset(data.Dataset):
                     train_label = [data['tr_label'].reshape([-1]).astype('int64'),
                                    data['tr_label'].reshape([-1]).astype('int64')]
                 elif self.mode == 'valid':
-                    train_data = [data['te_fc7'][0: valid_len].astype('float32'),
-                                  data['te_text'][0: valid_len].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1])[0: valid_len].astype('int64'),
-                                   data['te_label'].reshape([-1])[0: valid_len].astype('int64')]
+                    train_data = [data['te_fc7'].astype('float32'),
+                                  data['te_text'].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                                   data['te_label'].reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
-                    train_data = [data['te_fc7'][valid_len:].astype('float32'),
-                                  data['te_text'][valid_len:].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1])[valid_len:].astype('int64'),
-                                   data['te_label'].reshape([-1])[valid_len:].astype('int64')]
+                    train_data = [data['te_fc7'].astype('float32'),
+                                  data['te_text'].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                                   data['te_label'].reshape([-1]).astype('int64')]
 
             elif 'ps' in dataset.lower():
                 data = sio.loadmat(path)
