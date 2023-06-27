@@ -202,8 +202,8 @@ def main():
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
         result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
-        select_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
-        # select_idx2 = [torch.tensor([], dtype=np.int) for i in range(n_view)]
+        select_idx = [torch.tensor([], dtype=torch.int32) for i in range(n_view)]
+        # select_idx2 = [torch.tensor([], dtype=torch.int32) for i in range(n_view)]
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
@@ -265,7 +265,7 @@ def main():
             # selected2 = [pred_A1, pred_B1]
 
             #mix
-            select_num = len(prob_A) // 8
+            select_num = len(prob_A) // 7  #越大越少
             threshld_A = np.sort(prob_A)[::-1][select_num]
             threshld_B = np.sort(prob_B)[::-1][select_num]
             pred_A = (prob_A > threshld_A).squeeze()
@@ -330,7 +330,7 @@ def main():
                 penalty = torch.sum(prior * torch.log(prior / pred_mean))
                 Lx[v], Lu[v], lamb[v] = semiLoss(logits_x[v], mixed_target[v][:select_num], logits_u[v],
                                          mixed_target[v][select_num:], epoch+1 + batch_idx / num_iter, 0)
-                seimloss[v] = Lx[v] + lamb[v]*0.35 * Lu[v] + penalty
+                seimloss[v] = Lx[v] + lamb[v]*0.25 * Lu[v] + penalty
 
             lx_loss = seimloss[0] + seimloss[1]
 
@@ -346,7 +346,7 @@ def main():
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss = 0.8 * torch.mean(s_CE_loss) + 0.4 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
+            loss = 1 * torch.mean(s_CE_loss) + 0.4 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
             # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             # loss_sorted = loss_all[ind_sorted]
             # remember_rate = 1
