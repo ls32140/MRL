@@ -22,6 +22,7 @@ from src.loss import NormalizedGeneralizedCrossEntropy
 from src.loss import NFLandRCE
 from src.loss import NGCEandMAE
 from src.loss import NCEandAUE
+from src.loss import elr_loss
 from src.bmm import BetaMixture1D
 import src.utils as utils
 import scipy
@@ -152,6 +153,9 @@ def main():
     elif args.loss == 'NCEandAUE':
         criterion = NCEandAUE(1,1,train_dataset.class_num,6,1.5)
         criterion_no_mean = NCEandAUE(1,1,train_dataset.class_num,6,1.5,onMean=1)
+    elif args.loss == 'elr':
+        criterion = elr_loss(args.train_batch_size, train_dataset.class_num)
+        criterion_no_mean = elr_loss(args.train_batch_size, train_dataset.class_num, 0.3,onMean=1)
 
     else:
         raise Exception('No such loss function.')
