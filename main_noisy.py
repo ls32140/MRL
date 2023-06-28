@@ -155,7 +155,7 @@ def main():
         criterion_no_mean = NCEandAUE(1,1,train_dataset.class_num,6,1.5,onMean=1)
     elif args.loss == 'elr':
         criterion = elr_loss(args.train_batch_size, train_dataset.class_num)
-        criterion_no_mean = elr_loss(args.train_batch_size, train_dataset.class_num, 0.3,onMean=1)
+        criterion_no_mean = elr_loss(2173, train_dataset.class_num, 0.3, onMean=1)
 
     else:
         raise Exception('No such loss function.')
@@ -234,8 +234,8 @@ def main():
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
         result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
-        select_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
-        # select_idx2 = [torch.tensor([], dtype=np.int) for i in range(n_view)]
+        select_idx = [torch.tensor([], dtype=torch.int64) for i in range(n_view)]
+        # select_idx2 = [torch.tensor([], dtype=torch.int64) for i in range(n_view)]
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
@@ -378,7 +378,7 @@ def main():
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss = 1 * torch.mean(s_CE_loss) + 0.8 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
+            loss = 0.7 * torch.mean(s_CE_loss) + 0.3 * torch.mean(contrastiveLoss)# + 0.1 * lx_loss
             # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             # loss_sorted = loss_all[ind_sorted]
             # remember_rate = 1
@@ -423,7 +423,8 @@ def main():
                         fea[v].append(outputs[v])
                         lab[v].append(targets[v])
                         pred.append(outputs[v].mm(C))
-                        losses.append(criterion(pred[v], targets[v]))
+                        losses.append(CE(pred[v], targets[v]))
+                        # losses.append(criterion(pred[v], targets[v]))
                         loss_list[v] += losses[v]
                         _, predicted = pred[v].max(1)
                         total_list[v] += targets[v].size(0)
@@ -442,7 +443,8 @@ def main():
                         fea[v].append(outputs)
                         lab[v].append(targets)
                         pred.append(outputs.mm(C))
-                        losses.append(criterion(pred[v], targets))
+                        losses.append(CE(pred[v], targets[v]))
+                        # losses.append(criterion(pred[v], targets))
                         loss_list[v] += losses[v]
                         _, predicted = pred[v].max(1)
                         total_list[v] += targets.size(0)

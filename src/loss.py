@@ -223,3 +223,26 @@ class elr_loss(nn.Module):
         if self.onMean is not None:
             return final_loss
         return final_loss.mean()
+
+class elr_loss(nn.Module):
+    def __init__(self, num_examp, num_classes=10, beta=0.7, onMean=None):
+        super(elr_loss, self).__init__()
+        self.num_classes = num_classes
+        self.USE_CUDA = torch.cuda.is_available()
+        self.cross_entropy = nn.CrossEntropyLoss(reduction='none')
+        self.target = torch.zeros(num_examp, self.num_classes).cuda() if self.USE_CUDA else torch.zeros(num_examp,
+                                                                                                        self.num_classes)
+        self.beta = beta
+        self.onMean = onMean
+
+    def forward(self, output, label, index):
+        y_pred = F.softmax(output, dim=1)
+        y_pred = torch.clamp(y_pred, 1e-4, 1.0 - 1e-4)
+        y_pred_ = y_pred.data.detach()
+        self.target[index] = self.beta * self.target[index] + (1 - self.beta) * ((y_pred_) / (y_pred_).sum(dim=1, keepdim=True))
+        ce_loss = self.cross_entropy(output, label)
+        elr_reg = (1 - (self.target[index] * y_pred).sum(dim=1)).log()
+        final_loss = ce_loss + 3 * elr_reg
+        if self.onMean is not None:
+            return final_loss
+        return final_loss.mean()
