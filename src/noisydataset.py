@@ -82,7 +82,7 @@ class cross_modal_dataset(data.Dataset):
             elif 'ps' in dataset.lower():
                 data = sio.loadmat(path)
                 if self.mode == 'train':
-                    train_data = [data['tr_fc67'].astype('float32'),
+                    train_data = [data['tr_fc7'].astype('float32'),
                                   data['tr_text'].astype('float32')]
                     train_label = [data['tr_label'].reshape([-1]).astype('int64'),
                                    data['tr_label'].reshape([-1]).astype('int64')]
@@ -100,20 +100,20 @@ class cross_modal_dataset(data.Dataset):
             else:
                 data = sio.loadmat(path)
                 if self.mode == 'train':
-                    train_data = [data['tr_img'].astype('float32'),
+                    train_data = [data['tr_fc7'].astype('float32'),
                                   data['tr_text'].astype('float32')]
                     train_label = [data['tr_label'].reshape([-1]).astype('int64'),
                                    data['tr_label'].reshape([-1]).astype('int64')]
                 elif self.mode == 'valid':
-                    train_data = [data['te_img'][0: valid_len].astype('float32'),
-                                  data['te_text'][0: valid_len].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1])[0: valid_len].astype('int64'),
-                                   data['te_label'].reshape([-1])[0: valid_len].reshape([-1]).astype('int64')]
+                    train_data = [data['te_fc7'].astype('float32'),
+                                  data['te_text'].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                                   data['te_label'].reshape([-1]).reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
-                    train_data = [data['te_img'][valid_len:].astype('float32'),
-                                  data['te_text'][valid_len:].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1])[valid_len:].astype('int64'),
-                                   data['te_label'].reshape([-1])[valid_len:].reshape([-1]).astype('int64')]
+                    train_data = [data['te_fc7'].astype('float32'),
+                                  data['te_text'].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                                   data['te_label'].reshape([-1]).reshape([-1]).astype('int64')]
                 else:
                     raise Exception('Have no such set mode!')
 

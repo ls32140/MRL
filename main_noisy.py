@@ -265,7 +265,7 @@ def main():
             # selected2 = [pred_A1, pred_B1]
 
             #mix
-            select_num = len(prob_A) // 7  #越大越少
+            select_num = len(prob_A) // 8  #越大越少
             threshld_A = np.sort(prob_A)[::-1][select_num]
             threshld_B = np.sort(prob_B)[::-1][select_num]
             pred_A = (prob_A > threshld_A).squeeze()
@@ -346,7 +346,7 @@ def main():
             # if epoch < 10:
             #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
             # else:
-            loss = 1 * torch.mean(s_CE_loss) + 0.4 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
+            loss = 1 * torch.mean(s_CE_loss) + 0.2 * torch.mean(contrastiveLoss) + 0.1 * lx_loss
             # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             # loss_sorted = loss_all[ind_sorted]
             # remember_rate = 1
