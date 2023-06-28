@@ -23,15 +23,14 @@ import h5py
 logger = getLogger()
 
 class cross_modal_dataset(data.Dataset):
-    def __init__(self, dataset, noisy_ratio, mode, noise_mode='sym', root_dir='data/', noise_file=None, pred=False, probability=[], log=''):
+    def __init__(self, dataset, noisy_ratio, mode, noise_mode='sym', root_dir='data/', noise_file=None, pred=False, probability=[]):
         self.r = noisy_ratio # noise ratio
         self.mode = mode
         doc2vec = True
         if 'wiki' in dataset.lower():
             root_dir = os.path.join(root_dir, 'wiki')
             path = os.path.join(root_dir, 'wiki_clip.mat')
-            # path = os.path.join(root_dir, 'wiki_deep_doc2vec_data_corr_ae.h5py')  # wiki_deep_doc2vec_data
-            # valid_len = 131
+            valid_len = 131
         elif 'nus' in dataset.lower():
             root_dir = os.path.join(root_dir, 'nuswide')
             path = os.path.join(root_dir, 'nus_clip.mat')
@@ -41,14 +40,6 @@ class cross_modal_dataset(data.Dataset):
             path = os.path.join(root_dir, 'inria6.mat')
             doc2vec = False
             valid_len = 1332
-        elif 'xmedianet4view' in dataset.lower():
-            root_dir = os.path.join(root_dir, 'XMediaNet4View')
-            path = os.path.join(root_dir, 'XMediaNet4View_pairs.mat')
-            doc2vec = False
-        # elif 'xmedianet2views' in dataset.lower():
-        #     root_dir = os.path.join(root_dir, 'XMediaNet')
-        #     path = os.path.join(root_dir, 'xmedianet_deep_doc2vec_data.h5py')
-        #     valid_len = 4000
         elif 'xmedianet' in dataset.lower():
             root_dir = os.path.join(root_dir, 'xmedianet')
             path = os.path.join(root_dir, 'xmedianet_clip.mat')
@@ -60,122 +51,36 @@ class cross_modal_dataset(data.Dataset):
         else:
             raise Exception('Have no such dataset!')
 
-        if doc2vec:
-            if 'wiki' in dataset.lower():
-                data = sio.loadmat(path)
-                if self.mode == 'train':
-                    train_data = [data['tr_fc7'].astype('float32'),
-                                  data['tr_text'].astype('float32')]
-                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
-                                   data['tr_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'valid':
-                    train_data = [data['te_fc7'].astype('float32'),
-                                  data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'test':
-                    train_data = [data['te_fc7'].astype('float32'),
-                                  data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
-
-            elif 'ps' in dataset.lower():
-                data = sio.loadmat(path)
-                if self.mode == 'train':
-                    train_data = [data['tr_fc7'].astype('float32'),
-                                  data['tr_text'].astype('float32')]
-                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
-                                   data['tr_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'valid':
-                    train_data = [data['te_fc7'].astype('float32'),
-                                  data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'test':
-                    train_data = [data['te_fc7'].astype('float32'), data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
-                else:
-                    raise Exception('Have no such set mode!')
-            else:
-                data = sio.loadmat(path)
-                if self.mode == 'train':
-                    train_data = [data['tr_fc7'].astype('float32'),
-                                  data['tr_text'].astype('float32')]
-                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
-                                   data['tr_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'valid':
-                    train_data = [data['te_fc7'].astype('float32'),
-                                  data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).reshape([-1]).astype('int64')]
-                elif self.mode == 'test':
-                    train_data = [data['te_fc7'].astype('float32'),
-                                  data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).reshape([-1]).astype('int64')]
-                else:
-                    raise Exception('Have no such set mode!')
-
+        data = sio.loadmat(path)
+        if self.mode == 'valid':
+            train_data = [data['te_fc7'].astype('float32'),
+                          data['te_text'].astype('float32')]
+            train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                           data['te_label'].reshape([-1]).astype('int64')]
+        elif self.mode == 'test':
+            train_data = [data['te_fc7'].astype('float32'),
+                          data['te_text'].astype('float32')]
+            train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                           data['te_label'].reshape([-1]).astype('int64')]
         else:
-            data = sio.loadmat(path)
-            # xmedianet
-            if 'xmedianet' in dataset.lower():
-                if self.mode == 'train':
-                    train_data = [data['tr_fc7'].astype('float32'),
-                                  data['tr_text'].astype('float32')]
-                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
-                                   data['tr_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'valid':
-                    train_data = [data['te_fc7'].astype('float32'),
-                                  data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'test':
-                    train_data = [data['te_fc7'].astype('float32'),
-                                  data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
-                else:
-                    raise Exception('Have no such set mode!')
-            # if 'xmedianet4view' in dataset.lower():
-            #     if self.mode == 'train':
-            #         train_data = [data['train'][0, v].astype('float32') for v in range(4)]
-            #         train_label = [data['train_labels'][0, v].reshape([-1]).astype('int64') for v in range(4)]
-            #     elif self.mode == 'valid':
-            #         train_data = [data['valid'][0, v].astype('float32') for v in range(4)]
-            #         train_label = [data['valid_labels'][0, v].reshape([-1]).astype('int64') for v in range(4)]
-            #     elif self.mode == 'test':
-            #         train_data = [data['test'][0, v].astype('float32') for v in range(4)]
-            #         train_label = [data['test_labels'][0, v].reshape([-1]).astype('int64') for v in range(4)]
-            #     else:
-            #         raise Exception('Have no such set mode!')
-            else:
-                if self.mode == 'train':
-                    train_data = [data['tr_fc7'].astype('float32'),
-                                  data['tr_text'].astype('float32')]
-                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
-                                   data['tr_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'valid':
-                    train_data = [data['te_fc7'].astype('float32'),
-                                  data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'test':
-                    train_data = [data['te_fc7'].astype('float32'), data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
-                                   data['te_label'].reshape([-1]).astype('int64')]
-                else:
-                    raise Exception('Have no such set mode!')
+            train_data = [data['tr_fc7'].astype('float32'),
+                          data['tr_text'].astype('float32')]
+            train_label = [data['tr_label'].reshape([-1]).astype('int64'),
+                           data['tr_label'].reshape([-1]).astype('int64')]
 
         self.train_label = [la.astype('int64') for la in train_label]
         noise_label = self.train_label
-        if noise_file is None:
-            if noise_mode == 'sym':
-                noise_file = os.path.join(root_dir, 'noise_labels_%g_sym.json' % self.r)
-            elif noise_mode == 'asym':
-                noise_file = os.path.join(root_dir, 'noise_labels_%g__asym.json' % self.r)
-        if self.mode == 'train':
+        if self.mode == 'valid' or self.mode == 'test':
+            self.default_train_data = train_data
+            self.default_noise_label = np.array(noise_label)
+            self.train_data = self.default_train_data
+            self.noise_label = self.default_noise_label
+        else: #train
+            if noise_file is None:
+                if noise_mode == 'sym':
+                    noise_file = os.path.join(root_dir, 'noise_labels_%g_sym.json' % self.r)
+                elif noise_mode == 'asym':
+                    noise_file = os.path.join(root_dir, 'noise_labels_%g__asym.json' % self.r)
             if os.path.exists(noise_file):
                 noise_label = json.load(open(noise_file, "r"))
                 self.class_num = np.unique(noise_label).shape[0]
@@ -211,18 +116,26 @@ class cross_modal_dataset(data.Dataset):
                 # print("save noisy labels to %s ..." % noise_file)
                 json.dump(noise_label, open(noise_file, "w"))
 
-        self.default_train_data = train_data
-        self.default_noise_label = np.array(noise_label)
-        self.train_data = self.default_train_data
-        self.noise_label = self.default_noise_label
-        if pred:
-            self.prob = [np.ones_like(ll) for ll in self.default_noise_label]
-        else:
-            self.prob = None
+                if self.mode == 'all':
+                    train_data = train_data
+                    noise_label = noise_label
+                else:
+                    if self.mode == "labeled":
+                        pred_idx = pred.nonzero()[0]
+                        self.probability = [probability[i] for i in pred_idx]
 
-        # 选中的数据，有多少是干净的 （选中干净/选中）
+                    elif self.mode == "unlabeled":
+                        pred_idx = (1 - pred).nonzero()[0]
 
-    def testClean(self, idx):
+                    train_data = train_data[pred_idx]
+                    noise_label = [noise_label[i] for i in pred_idx]
+                    print("%s data has a size of %d" % (self.mode, len(noise_label)))
+                    self.default_train_data = train_data
+                    self.default_noise_label = np.array(noise_label)
+                    self.train_data = self.default_train_data
+                    self.noise_label = self.default_noise_label
+
+    def testClean(self, idx): # 选中的数据，有多少是干净的 （选中干净/选中）
         n_view = len(self.train_data)
         s = []
         for v in range(n_view):
@@ -249,39 +162,10 @@ class cross_modal_dataset(data.Dataset):
         print(num, ppp)
         print("resetrio:", rio)
 
-    def reset(self, pred, prob, mode='labeled'):
-        if pred is None:
-            self.prob = None
-            self.train_data = self.default_train_data
-            self.noise_label = self.default_noise_label
-        elif mode == 'labeled':
-            inx = np.stack(pred).sum(0) > 0.5
-            self.train_data = [dd[inx] for dd in self.default_train_data]
-            self.noise_label = [dd[inx] for dd in self.default_noise_label]
-            probs = np.stack(prob)[:, inx]
-            prob_inx = probs.argmax(0)
-            labels = np.stack(self.noise_label)[prob_inx, np.arange(probs.shape[1])]
-            prob = probs[prob_inx, np.arange(probs.shape[1])]
-            self.noise_label = [labels for _ in range(len(self.default_noise_label))]
-            self.prob = [prob, prob]
-        elif mode == 'unlabeled':
-            inx = np.stack(pred).sum(0) <= 0.5
-            self.train_data = [dd[inx] for dd in self.default_train_data]
-            self.noise_label = [dd[inx] for dd in self.default_noise_label]
-            self.prob = [dd[inx] for dd in prob]
-        else:
-            self.train_data = self.default_train_data
-            # inx = (np.stack(pred).sum(0) <= 0.5).float()
-            inx = [(p <= 0.5).astype('float32') for p in pred]
-            self.noise_label = [self.default_noise_label[i] * (1. - inx[i]) - inx[i] for i in range(len(self.default_noise_label))]
-            self.prob = prob
 
 
     def __getitem__(self, index):
-        if self.prob is None:
-            return [self.train_data[v][index] for v in range(len(self.train_data))], [self.noise_label[v][index] for v in range(len(self.train_data))], index
-        else:
-            return [self.train_data[v][index] for v in range(len(self.train_data))], [self.noise_label[v][index] for v in range(len(self.train_data))], [self.prob[v][index] for v in range(len(self.prob))], index
-
+        return [self.train_data[v][index] for v in range(len(self.train_data))], [self.noise_label[v][index] for v in
+                                                                                  range(len(self.train_data))], index
     def __len__(self):
         return len(self.train_data[0])

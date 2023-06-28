@@ -65,7 +65,6 @@ def main():
     train_dataset = cross_modal_dataset(args.data_name, args.noisy_ratio, 'train')
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
-        # sampler=sampler,
         batch_size=args.train_batch_size,
         num_workers=args.num_workers,
         shuffle=True,
@@ -93,14 +92,58 @@ def main():
         drop_last=False
     )
 
+    test_dataset = cross_modal_dataset(args.data_name, args.noisy_ratio, 'all')
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=args.train_batch_size,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        shuffle=False,
+        drop_last=False
+    )
+
+    warm_dataset = cross_modal_dataset(args.data_name, args.noisy_ratio, 'all')
+    warm_loader = torch.utils.data.DataLoader(
+        warm_dataset,
+        batch_size=args.train_batch_size,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        shuffle=False,
+        drop_last=False
+    )
+
+    unlabeled_dataset = cross_modal_dataset(args.data_name, args.noisy_ratio, 'unlabeled')
+    unlabeled_loader = torch.utils.data.DataLoader(
+        unlabeled_dataset,
+        batch_size=args.train_batch_size,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        shuffle=False,
+        drop_last=False
+    )
+    labeled_dataset = cross_modal_dataset(args.data_name, args.noisy_ratio, 'labeled')
+    labeled_loader = torch.utils.data.DataLoader(
+        labeled_dataset,
+        batch_size=args.train_batch_size,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        shuffle=False,
+        drop_last=False
+    )
+
     print('===> Building Models..')
     multi_models = []
+    multi_models2 = []
     n_view = len(train_dataset.train_data)
     for v in range(n_view):
         if v == args.views.index('Img'): # Images
             multi_models.append(models.__dict__['ImageNet'](input_dim=train_dataset.train_data[v].shape[1], output_dim=args.output_dim).cuda())
+            multi_models2.append(models.__dict__['ImageNet'](input_dim=train_dataset.train_data[v].shape[1],
+                                                            output_dim=args.output_dim).cuda())
         elif v == args.views.index('Txt'): # Text
             multi_models.append(models.__dict__['TextNet'](input_dim=train_dataset.train_data[v].shape[1], output_dim=args.output_dim).cuda())
+            multi_models2.append(models.__dict__['TextNet'](input_dim=train_dataset.train_data[v].shape[1],
+                                                           output_dim=args.output_dim).cuda())
         else: # Default to use ImageNet
             multi_models.append(models.__dict__['ImageNet'](input_dim=train_dataset.train_data[v].shape[1], output_dim=args.output_dim).cuda())
 
@@ -111,9 +154,16 @@ def main():
     embedding = torch.eye(train_dataset.class_num).cuda()
     embedding.requires_grad = False
 
+    def entropyLoss(a,tar): # 两个向量的交叉熵
+        logsoftmax = torch.nn.LogSoftmax(dim=1)
+        res = -tar * logsoftmax(a)
+        return torch.sum(res, dim=1)
+
+    CE = torch.nn.CrossEntropyLoss().cuda()
     parameters = [C]
     for v in range(n_view):
         parameters += list(multi_models[v].parameters())
+        parameters += list(multi_models2[v].parameters())
     if args.optimizer == 'SGD':
         optimizer = torch.optim.SGD(parameters, lr=args.lr, momentum=0.9, weight_decay=args.wd)
     elif args.optimizer == 'Adam':
@@ -162,16 +212,11 @@ def main():
 
     summary_writer = SummaryWriter(args.log_dir)
 
-    def entropyLoss(a,tar): # 两个向量的交叉熵
-        logsoftmax = torch.nn.LogSoftmax(dim=1)
-        res = -tar * logsoftmax(a)
-        return torch.sum(res, dim=1)
-
-    CE = torch.nn.CrossEntropyLoss().cuda()
     if args.resume:
         ckpt = torch.load(os.path.join(args.ckpt_dir, args.resume))
         for v in range(n_view):
             multi_models[v].load_state_dict(ckpt['model_state_dict_%d' % v])
+            multi_models2[v].load_state_dict(ckpt['model2_state_dict_%d' % v])
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         start_epoch = ckpt['epoch']
         print('===> Load last checkpoint data')
@@ -228,6 +273,17 @@ def main():
         logsoftmax = torch.nn.LogSoftmax(dim=1)
         res = -torch.from_numpy(probs).cuda() * logsoftmax(pred)
         return torch.sum(res, dim=1)
+
+    def warmup(epoch, net, optimizer, dataloader):
+        net.train()
+        num_iter = (len(dataloader.dataset) // dataloader.batch_size) + 1
+        for batch_idx, (inputs, labels, path) in enumerate(dataloader):
+            inputs, labels = inputs.cuda(), labels.cuda()
+            optimizer.zero_grad()
+            outputs = net(inputs)
+            loss = CE(outputs, labels)
+            loss.backward()
+            optimizer.step()
 
     num_iter = (len(train_loader.dataset) // args.train_batch_size) + 1
     def train(epoch):
@@ -547,6 +603,7 @@ def main():
                 for v in range(n_view):
                     # models[v].load_state_dict(ckpt['model_state_dict_%d' % v])
                     state['model_state_dict_%d' % v] = multi_models[v].state_dict()
+                    state['model2_state_dict_%d' % v] = multi_models2[v].state_dict()
                 for key in test_dict:
                     state[key] = test_dict[key]
                 state['epoch'] = epoch
@@ -555,17 +612,16 @@ def main():
                 torch.save(state, os.path.join(args.ckpt_dir, '%s_%s_%d_best_checkpoint.t7' % ('MRL', args.data_name, args.output_dim)))
             return val_dict
 
-    # test(1)
-    best_prec1 = 0.
-    lr_schedu.step(start_epoch)
-    train(-1)
-    results = test(-1)
-    for epoch in range(start_epoch, args.max_epochs):
+
+    for epoch in range(args.max_epochs + 1):
+        lr_schedu.step(epoch)
         train(epoch)
         lr_schedu.step(epoch)
         test_dict = test(epoch + 1)
         if test_dict['avg'] == best_acc:
             multi_model_state_dict = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in multi_models]
+            multi_model_state_dict2 = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in
+                                      multi_models2]
             W_best = C.clone()
 
     print('Evaluation on Last Epoch:')
@@ -575,6 +631,7 @@ def main():
 
     print('Evaluation on Best Validation:')
     [multi_models[v].load_state_dict(multi_model_state_dict[v]) for v in range(n_view)]
+    [multi_models2[v].load_state_dict(multi_model_state_dict2[v]) for v in range(n_view)]
     fea, lab = eval(test_loader, epoch, 'test')
     test_dict, print_str = multiview_test(fea, lab)
     print(print_str)
