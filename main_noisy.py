@@ -82,9 +82,9 @@ def main():
         drop_last=False
     )
 
-    test_dataset = cross_modal_dataset(args.data_name, args.noisy_ratio, 'test')
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
+    eval_dataset = cross_modal_dataset(args.data_name, args.noisy_ratio, 'test')
+    eval_loader = torch.utils.data.DataLoader(
+        eval_dataset,
         batch_size=args.eval_batch_size,
         num_workers=args.num_workers,
         pin_memory=True,
@@ -224,13 +224,13 @@ def main():
         start_epoch = 0
         print('===> Start from scratch')
 
-    def set_train():
+    def set_train(models):
         for v in range(n_view):
-            multi_models[v].train()
+            models[v].train()
 
-    def set_eval():
+    def set_eval(models):
         for v in range(n_view):
-            multi_models[v].eval()
+            models[v].eval()
 
     def contrastive(fea, tar, tau=1.):
         loss = []
@@ -286,6 +286,16 @@ def main():
             optimizer.step()
 
     num_iter = (len(train_loader.dataset) // args.train_batch_size) + 1
+
+    def train(epoch, model, model2, optimizer, labeled_trainloader, unlabeled_trainloader):
+        print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
+        set_train(model)
+        set_eval(model2)
+
+        unlabeled_train_iter = iter(unlabeled_trainloader)
+        num_iter = (len(labeled_trainloader.dataset) // args.batch_size) + 1
+
+
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()

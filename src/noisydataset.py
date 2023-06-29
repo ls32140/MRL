@@ -26,7 +26,6 @@ class cross_modal_dataset(data.Dataset):
     def __init__(self, dataset, noisy_ratio, mode, noise_mode='sym', root_dir='data/', noise_file=None, pred=False, probability=[]):
         self.r = noisy_ratio # noise ratio
         self.mode = mode
-        doc2vec = True
         if 'wiki' in dataset.lower():
             root_dir = os.path.join(root_dir, 'wiki')
             path = os.path.join(root_dir, 'wiki_clip.mat')
@@ -38,13 +37,11 @@ class cross_modal_dataset(data.Dataset):
         elif 'inria' in dataset.lower():
             root_dir = os.path.join(root_dir, 'INRIA-Websearch')
             path = os.path.join(root_dir, 'inria6.mat')
-            doc2vec = False
             valid_len = 1332
         elif 'xmedianet' in dataset.lower():
             root_dir = os.path.join(root_dir, 'xmedianet')
             path = os.path.join(root_dir, 'xmedianet_clip.mat')
             valid_len = 2000
-            doc2vec = False
         elif 'ps' in dataset.lower():
             root_dir = os.path.join(root_dir, 'ps')
             path = os.path.join(root_dir, 'ps_clip.mat')
@@ -117,8 +114,10 @@ class cross_modal_dataset(data.Dataset):
                 json.dump(noise_label, open(noise_file, "w"))
 
                 if self.mode == 'all':
-                    train_data = train_data
-                    noise_label = noise_label
+                    self.default_train_data = train_data
+                    self.default_noise_label = np.array(noise_label)
+                    self.train_data = self.default_train_data
+                    self.noise_label = self.default_noise_label
                 else:
                     if self.mode == "labeled":
                         pred_idx = pred.nonzero()[0]
@@ -135,6 +134,17 @@ class cross_modal_dataset(data.Dataset):
                     self.train_data = self.default_train_data
                     self.noise_label = self.default_noise_label
 
+    def mixgen_batch(data, lam=0.5):
+        image = data[0]
+        text = data[1]
+        size = image.size()[0]
+        index = np.random.permutation(size)
+        for i in range(size):
+            # image mixup
+            image[i, :] = lam * image[i, :] + (1 - lam) * image[index[i], :]
+            # text concat
+            text[i] = text[i] + " " + text[index[i]]
+        return image, text
     def testClean(self, idx): # 选中的数据，有多少是干净的 （选中干净/选中）
         n_view = len(self.train_data)
         s = []
@@ -162,10 +172,12 @@ class cross_modal_dataset(data.Dataset):
         print(num, ppp)
         print("resetrio:", rio)
 
-
-
     def __getitem__(self, index):
-        return [self.train_data[v][index] for v in range(len(self.train_data))], [self.noise_label[v][index] for v in
-                                                                                  range(len(self.train_data))], index
+        data = [self.train_data[v][index] for v in range(len(self.train_data))]
+        label = [self.noise_label[v][index] for v in range(len(self.train_data))]
+        data2 = [self.train_data[v][index] for v in range(len(self.train_data))]
+        if self.mode == 'labeled':
+            return data, label, index
+
     def __len__(self):
         return len(self.train_data[0])
