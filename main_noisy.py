@@ -17,6 +17,9 @@ from src.noisydataset import cross_modal_dataset
 import src.utils as utils
 import scipy
 import scipy.spatial
+from src.bmm import BetaMixture1D
+from src.loss import NGCEandMAE
+from src.loss import NCEandRCE
 
 
 best_acc = 0  # best test accuracy
@@ -102,7 +105,14 @@ def main():
     if args.loss == 'CE':
         criterion = torch.nn.CrossEntropyLoss().cuda()
     elif args.loss == 'MCE':
-        criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
+        criterion = utils.MeanClusteringError(train_dataset.class_num, None, tau=args.tau).cuda()
+        criterion_no_mean = utils.MeanClusteringError(train_dataset.class_num, 1, tau=args.tau).cuda()
+    elif args.loss == 'APL':
+        criterion = NCEandRCE(1, 1, train_dataset.class_num)
+        criterion_no_mean = NCEandRCE(1, 1, train_dataset.class_num, 1)
+    elif args.loss == 'NGCEandMAE':
+        criterion = NGCEandMAE(1, 1, train_dataset.class_num,0.7)
+        criterion_no_mean = NGCEandMAE(1, 1, train_dataset.class_num,0.7, 1)
     else:
         raise Exception('No such loss function.')
 
@@ -143,15 +153,31 @@ def main():
         loss2 = -(diag2 / sim.sum(1)).log().mean()
         return loss1 + loss2
 
+    def contrastive(fea, tar, tau=1.):
+        loss = []
+        for v in range(n_view):
+            sim = fea[v].mm(fea[v].t())
+            sim = (sim / tau).exp()
+            dif = tar[v] - tar[v].reshape(-1, 1)
+            condition1 = dif == 0
+            condition2 = dif != 0
+            masked_sim1 = torch.masked_fill(sim, condition1, value=0)  # not seem class
+            masked_sim2 = torch.masked_fill(sim, condition2, value=0)  # seem class
+            top_value, top_i = torch.topk(masked_sim2, 1)
+            select_sim = (top_value.sum()).reshape(1, -1).squeeze()
+            loss.append(-(select_sim / masked_sim1.sum(1)).log().mean())
+        return loss[0] + loss[1]
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
+        select_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
 
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
+            index = index
+            batch_size = batches[0].shape[0]
 
-            batches, targets = mixgen_batch(batches, targets)
             norm = C.norm(dim=0, keepdim=True)
             C.data = (C / norm).detach()
 
@@ -161,9 +187,75 @@ def main():
 
             outputs = [multi_models[v](batches[v]) for v in range(n_view)]
             preds = [outputs[v].mm(C) for v in range(n_view)]
-            losses = [criterion(preds[v], targets[v]) for v in range(n_view)]
+
+            mceloss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
+            losses = [torch.mean(mceloss[v]) for v in range(n_view)]
+            mceloss = torch.stack(mceloss).reshape(1, -1).squeeze()
             loss = sum(losses)
-            loss = args.beta * loss + (1. - args.beta) * cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
+
+            loss_nor = (mceloss - mceloss.min()) / (mceloss.max() - mceloss.min())
+            # loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
+            bmm_A = BetaMixture1D(max_iters=10)
+            loss_i = loss_nor.reshape(-1, 1)[0:batch_size].cpu().detach().numpy()
+            bmm_A.fit(loss_i)
+            prob_A = bmm_A.posterior(loss_i, 0).T.squeeze()
+
+            bmm_B = BetaMixture1D(max_iters=10)
+            loss_t = loss_nor.reshape(-1, 1)[batch_size:].cpu().detach().numpy()
+            bmm_B.fit(loss_t)
+            prob_B = bmm_A.posterior(loss_t, 0).T.squeeze()
+
+            # mix
+            # select_num = len(prob_A) // 5
+            select_num = int(len(prob_A)*(args.noisy_ratio)*0.5) #筛选干净的数量
+            threshld_A = np.sort(prob_A)[::-1][select_num]
+            threshld_B = np.sort(prob_B)[::-1][select_num]
+            pred_A = (prob_A > threshld_A).squeeze()
+            pred_B = (prob_B > threshld_B).squeeze()
+            selected = [pred_A, pred_B]
+
+            for v in range(n_view):
+                ss = index[selected[v]]
+                select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
+
+            inputs_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            targets_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            inputs_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            targets_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            all_inputs = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            all_targets = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+
+            for v in range(n_view):
+                inputs_x[v] = batches[v][selected[v]]
+                targets_x[v] = targets[v][selected[v]]
+
+                inputs_u[v] = batches[v][~selected[v]]
+                targets_u[v] = targets[v][~selected[v]]
+
+
+                size = inputs_x[v].size()[0]
+                index = np.random.permutation(size)
+                lam = 0.05
+                for i in range(size):
+                    inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[i], :]
+                    targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[i]]
+
+                all_inputs[v] = torch.cat([inputs_x[v], inputs_u[v]], dim=0).cuda()
+                all_targets[v] = torch.cat([targets_x[v], targets_u[v]], dim=0).cuda()
+
+
+
+            outputs1 = [multi_models[v](all_inputs[v]) for v in range(n_view)]
+            preds1 = [outputs1[v].mm(C) for v in range(n_view)]
+            losses1 = [criterion(preds1[v], all_targets[v]) for v in range(n_view)]
+            loss1 = sum(losses1)
+            contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
+            # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
+            if epoch<2:
+                loss = args.beta * loss + (1. - args.beta)
+            else:
+                loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
@@ -178,6 +270,7 @@ def main():
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f | LR: %g'
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
 
+        train_dataset.testClean(select_idx)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
         summary_writer.add_scalars('Loss/train', train_dict, epoch)

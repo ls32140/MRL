@@ -63,8 +63,8 @@ class cross_modal_dataset(data.Dataset):
             train_label = [data['te_label'].reshape([-1]).astype('int64'),
                            data['te_label'].reshape([-1]).astype('int64')]
 
-        train_label = [la.astype('int64') for la in train_label]
-        noise_label = train_label
+        self.train_label = [la.astype('int64') for la in train_label]
+        noise_label = self.train_label
         if noise_file is None:
             if noise_mode == 'sym':
                 noise_file = os.path.join(root_dir, 'noise_labels_%g_sym.json' % self.r)
@@ -115,6 +115,20 @@ class cross_modal_dataset(data.Dataset):
         else:
             self.prob = None
 
+    # 选中的数据，有多少是干净的 （选中干净/选中）
+    def testClean(self, idx):
+        n_view = len(self.train_data)
+        s = []
+        for v in range(n_view):
+            id = idx[v]
+            a = self.noise_label[v][id] - self.train_label[v][id]
+            cnt_array = np.where(a, 0, 1)
+            s.append(cnt_array)
+        p = np.hstack(s)
+        num = np.sum(p)
+        rio = num / len(p)
+        print(num, len(p))
+        print("选中干净/选中:", rio)
     def __getitem__(self, index):
         data = [self.train_data[v][index] for v in range(len(self.train_data))]
         label = [self.noise_label[v][index] for v in range(len(self.train_data))]
