@@ -357,6 +357,8 @@ def main():
 def mixgen_batch(data, targets, lam=0.5):
     image = data[0]
     text = data[1]
+    target1 = targets[0]
+    target2 = targets[0]
     size = image.size()[0]
     index = np.random.permutation(size)
     for i in range(size):
@@ -364,13 +366,10 @@ def mixgen_batch(data, targets, lam=0.5):
         image[i, :] = lam * image[i, :] + (1 - lam) * image[index[i], :]
         # text concat
         text[i, :] = lam * text[i, :] + (1 - lam) * text[index[i], :]
-        a = lam * targets[v][i] + (1 - lam) * targets[v][index[i]
-        targets = [lam * targets[v][i] + (1 - lam) * targets[v][index[i]] for v in range(2)]
 
-        # texts.append(torch.cat([text[i], text[index[i]]]))
-        # text[i] = text[i] + " " + text[index[i]]
-    # return [image, torch.stack(texts)]
-    return [image, text], targets
+        target1[i] = lam * target1[i] + (1 - lam) * target1[index[i]]
+        target2[i] = lam * target1[i] + (1 - lam) * target1[index[i]]
+    return [image, text], [target1, target2]
 def fx_calc_map_multilabel_k(train, train_labels, test, test_label, k=0, metric='cosine'):
     dist = scipy.spatial.distance.cdist(test, train, metric)
     ord = dist.argsort()
