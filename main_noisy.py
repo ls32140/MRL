@@ -251,10 +251,10 @@ def main():
             loss1 = sum(losses1)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
-            if epoch<2:
-                loss = args.beta * loss + (1. - args.beta)
-            else:
-                loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+            # if epoch<2:
+            #     loss = args.beta * loss + (1. - args.beta)
+            # else:
+            loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
 
             if epoch >= 0:
                 loss.backward()
@@ -358,9 +358,9 @@ def main():
             # summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
 
             fea, lab = eval(valid_loader, epoch, 'valid')
-            if is_eval:
-                fea = [fea[v][0: 2000] for v in range(n_view)]
-                lab = [lab[v][0: 2000] for v in range(n_view)]
+            # if is_eval:
+            #     fea = [fea[v][0: 2000] for v in range(n_view)]
+            #     lab = [lab[v][0: 2000] for v in range(n_view)]
 
             MAPs = np.zeros([n_view, n_view])
             val_dict = {}
@@ -382,9 +382,9 @@ def main():
             summary_writer.add_scalars('Retrieval/valid', val_dict, epoch)
 
             fea, lab = eval(test_loader, epoch, 'test')
-            if is_eval:
-                fea = [fea[v][0: 2000] for v in range(n_view)]
-                lab = [lab[v][0: 2000] for v in range(n_view)]
+            # if is_eval:
+            #     fea = [fea[v][0: 2000] for v in range(n_view)]
+            #     lab = [lab[v][0: 2000] for v in range(n_view)]
 
             MAPs = np.zeros([n_view, n_view])
             test_dict = {}
