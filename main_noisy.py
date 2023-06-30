@@ -150,6 +150,8 @@ def main():
 
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
+
+            batches, targets = mixgen_batch(batches, targets)
             norm = C.norm(dim=0, keepdim=True)
             C.data = (C / norm).detach()
 
@@ -185,8 +187,6 @@ def main():
         fea, lab = [[] for _ in range(n_view)], [[] for _ in range(n_view)]
         test_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
         with torch.no_grad():
-            a = sum([data_loader.dataset.train_data[v].shape[0] != data_loader.dataset.train_data[0].shape[0] for v in
-                 range(len(data_loader.dataset.train_data))])
             if sum([data_loader.dataset.train_data[v].shape[0] != data_loader.dataset.train_data[0].shape[0] for v in range(len(data_loader.dataset.train_data))]) == 0:
                 for batch_idx, (batches, targets, index) in enumerate(data_loader):
                     batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
@@ -354,7 +354,23 @@ def main():
     save_dict = dict(**{args.views[v]: fea[v] for v in range(n_view)}, **{args.views[v] + '_lab': lab[v] for v in range(n_view)})
     save_dict['C'] = W_best.detach().cpu().numpy()
     sio.savemat('features/%s_%g.mat' % (args.data_name, args.noisy_ratio), save_dict)
+def mixgen_batch(data, targets, lam=0.5):
+    image = data[0]
+    text = data[1]
+    size = image.size()[0]
+    index = np.random.permutation(size)
+    for i in range(size):
+        # image mixup
+        image[i, :] = lam * image[i, :] + (1 - lam) * image[index[i], :]
+        # text concat
+        text[i, :] = lam * text[i, :] + (1 - lam) * text[index[i], :]
+        a = lam * targets[v][i] + (1 - lam) * targets[v][index[i]
+        targets = [lam * targets[v][i] + (1 - lam) * targets[v][index[i]] for v in range(2)]
 
+        # texts.append(torch.cat([text[i], text[index[i]]]))
+        # text[i] = text[i] + " " + text[index[i]]
+    # return [image, torch.stack(texts)]
+    return [image, text], targets
 def fx_calc_map_multilabel_k(train, train_labels, test, test_label, k=0, metric='cosine'):
     dist = scipy.spatial.distance.cdist(test, train, metric)
     ord = dist.argsort()
