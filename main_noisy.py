@@ -207,7 +207,7 @@ def main():
 
             # mix
             # select_num = len(prob_A) // 5
-            select_num = int(len(prob_A)*(args.noisy_ratio)*0.5) #筛选干净的数量
+            select_num = min(int(len(prob_A)*(args.noisy_ratio)*0.5), int(1-args.noisy_ratio)) #筛选干净的数量
             threshld_A = np.sort(prob_A)[::-1][select_num]
             threshld_B = np.sort(prob_B)[::-1][select_num]
             pred_A = (prob_A > threshld_A).squeeze()
@@ -232,6 +232,7 @@ def main():
                 inputs_u[v] = batches[v][~selected[v]]
                 targets_u[v] = targets[v][~selected[v]]
 
+<<<<<<< Updated upstream
 
                 size = inputs_x[v].size()[0]
                 index = np.random.permutation(size)
@@ -239,6 +240,23 @@ def main():
                 for i in range(size):
                     inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[i], :]
                     targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[i]]
+=======
+                u_size = inputs_u[v].size()[0]
+                x_size = inputs_x[v].size()[0]
+                if x_size != 0:
+                    index = np.random.permutation(x_size)
+                    lam = 0.8
+                    for i in range(u_size):
+                        j = i % x_size
+                        inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
+                        targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[j]]
+                # size = inputs_x[v].size()[0]
+                # index = np.random.permutation(size)
+                # lam = 0.8
+                # for i in range(size):
+                #     inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[i], :]
+                #     targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[i]]
+>>>>>>> Stashed changes
 
                 all_inputs[v] = torch.cat([inputs_x[v], inputs_u[v]], dim=0).cuda()
                 all_targets[v] = torch.cat([targets_x[v], targets_u[v]], dim=0).cuda()
@@ -251,6 +269,7 @@ def main():
             loss1 = sum(losses1)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
+<<<<<<< Updated upstream
 
             # if epoch<1:
             #     loss = args.beta * loss + (1. - args.beta)
@@ -258,6 +277,13 @@ def main():
             #      loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
             loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
 
+=======
+            # if epoch<2:
+            #     loss = args.beta * loss + (1. - args.beta)
+            # else:
+            #     loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+            loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+>>>>>>> Stashed changes
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
