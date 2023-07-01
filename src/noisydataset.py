@@ -203,16 +203,19 @@ class cross_modal_dataset(data.Dataset):
             #         raise Exception('Have no such set mode!')
             else:
                 if self.mode == 'train':
-                    train_data = [data['tr_fc6'][valid_len:].astype('float32'), data['tr_text'][valid_len:].astype('float32')]
-                    train_label = [data['tr_label'][valid_len:].reshape([-1]).astype('int64'), data['tr_label'][valid_len:].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_img'][valid_len:].astype('float32'),
+                                  data['tr_text'][valid_len:].astype('float32')]
+                    train_label = [data['tr_label'][valid_len:].reshape([-1]).astype('int64'),
+                                   data['tr_label'][valid_len:].reshape([-1]).astype('int64')]
                 elif self.mode == 'valid':
-                    train_data = [data['tr_fc6'][0: valid_len].astype('float32'), data['tr_text'][0: valid_len].astype('float32')]
-                    train_label = [data['tr_label'][0: valid_len].reshape([-1]).astype('int64'), data['tr_label'][0: valid_len].reshape([-1]).astype('int64')]
+                    train_data = [data['tr_img'][0: valid_len].astype('float32'),
+                                  data['tr_text'][0: valid_len].astype('float32')]
+                    train_label = [data['tr_label'][0: valid_len].reshape([-1]).astype('int64'),
+                                   data['tr_label'][0: valid_len].reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
-                    train_data = [data['te_fc6'].astype('float32'), data['te_text'].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1]).astype('int64'), data['te_label'].reshape([-1]).astype('int64')]
-                else:
-                    raise Exception('Have no such set mode!')
+                    train_data = [data['te_img'].astype('float32'), data['te_text'].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                                   data['te_label'].reshape([-1]).astype('int64')]
 
 
         # if 'wiki' in dataset.lower() or 'nus' in dataset.lower():
