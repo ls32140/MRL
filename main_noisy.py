@@ -207,7 +207,7 @@ def main():
 
             # mix
             # select_num = len(prob_A) // 5
-            select_num = min(int(len(prob_A)*(args.noisy_ratio)*0.5), int(1-args.noisy_ratio)) #筛选干净的数量
+            select_num = min(int(len(prob_A)*(args.noisy_ratio)*0.5), int(len(prob_A)*(1-args.noisy_ratio))) #筛选干净的数量
             threshld_A = np.sort(prob_A)[::-1][select_num]
             threshld_B = np.sort(prob_B)[::-1][select_num]
             pred_A = (prob_A > threshld_A).squeeze()
