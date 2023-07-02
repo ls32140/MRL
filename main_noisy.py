@@ -218,19 +218,19 @@ def main():
                 ss = index[selected[v]]
                 select_idx[v] = torch.cat([select_idx[v], ss], dim=0)
 
-            inputs_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
-            targets_x = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
-            inputs_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
-            targets_u = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
-            all_inputs = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
-            all_targets = [torch.tensor([], dtype=torch.float64) for i in range(n_view)]
+            inputs_x = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
+            targets_x = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
+            inputs_u = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
+            targets_u = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
+            all_inputs = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
+            all_targets = [torch.tensor([], dtype=torch.float32) for v in range(n_view)]
 
             for v in range(n_view):
                 inputs_x[v] = batches[v][selected[v]]
-                targets_x[v] = targets[v][selected[v]]
+                targets_x[v] = torch.nn.functional.one_hot(targets[v][selected[v]], train_dataset.class_num).float()
 
                 inputs_u[v] = batches[v][~selected[v]]
-                targets_u[v] = targets[v][~selected[v]]
+                targets_u[v] = torch.nn.functional.one_hot(targets[v][~selected[v]], train_dataset.class_num).float()
 
                 # u_size = inputs_u[v].size()[0]
                 # x_size = inputs_x[v].size()[0]
@@ -241,9 +241,18 @@ def main():
                 #         j = i % x_size
                 #         inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
                 #         targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[j]]
+
+                # size = inputs_x[v].size()[0]
+                # index = np.random.permutation(size)
+                # lam = 0.2
+                # for i in range(size*2):
+                #     j = i % size
+                #     inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
+                #     targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[j]]
+
                 size = inputs_x[v].size()[0]
                 index = np.random.permutation(size)
-                lam = 0.8
+                lam = 0.05
                 for i in range(size):
                     inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[i], :]
                     targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[i]]
@@ -260,11 +269,11 @@ def main():
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
 
-            # if epoch<1:
-            #     loss = args.beta * loss + (1. - args.beta)
-            # else:
-            #      loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
-            loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+            if epoch<2:
+                loss = args.beta * loss + (1. - args.beta)
+            else:
+                 loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+            # loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
 
             if epoch >= 0:
                 loss.backward()

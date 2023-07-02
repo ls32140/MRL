@@ -85,26 +85,6 @@ class GeneralizedCrossEntropy(torch.nn.Module):
             return gce
         return gce.mean()
 
-class NormalizedGeneralizedCrossEntropy(torch.nn.Module):
-    def __init__(self, num_classes, scale=1.0, q=0.7, onMean=None):
-        super(NormalizedGeneralizedCrossEntropy, self).__init__()
-        self.num_classes = num_classes
-        self.q = q
-        self.scale = scale
-        self.onMean = onMean
-
-    def forward(self, pred, labels):
-        pred = F.softmax(pred, dim=1)
-        pred = torch.clamp(pred, min=1e-7, max=1.0)
-        label_one_hot = torch.nn.functional.one_hot(labels, self.num_classes).float().to(pred.device)
-        numerators = 1. - torch.pow(torch.sum(label_one_hot * pred, dim=1), self.q)
-        denominators = self.num_classes - pred.pow(self.q).sum(dim=1)
-        ngce = numerators / denominators
-        loss = self.scale * ngce
-        if self.onMean is not None:
-            return loss
-        return loss.mean()
-
 class NormalizedFocalLoss(torch.nn.Module):
     def __init__(self, scale=1.0, gamma=0.5, num_classes=10, alpha=None):
         super(NormalizedFocalLoss, self).__init__()
@@ -138,6 +118,26 @@ class NFLandRCE(torch.nn.Module):
             return loss
         return loss.mean()
 
+class NormalizedGeneralizedCrossEntropy(torch.nn.Module):
+    def __init__(self, num_classes, scale=1.0, q=0.7, onMean=None):
+        super(NormalizedGeneralizedCrossEntropy, self).__init__()
+        self.num_classes = num_classes
+        self.q = q
+        self.scale = scale
+        self.onMean = onMean
+
+    def forward(self, pred, labels):
+        pred = F.softmax(pred, dim=1)
+        pred = torch.clamp(pred, min=1e-7, max=1.0)
+        if labels.dtype == torch.int64: #原始类别，进行one-hot
+            labels = torch.nn.functional.one_hot(labels, self.num_classes).float().to(pred.device)
+        numerators = 1. - torch.pow(torch.sum(labels * pred, dim=1), self.q)
+        denominators = self.num_classes - pred.pow(self.q).sum(dim=1)
+        ngce = numerators / denominators
+        loss = self.scale * ngce
+        if self.onMean is not None:
+            return loss
+        return loss.mean()
 class MeanAbsoluteError(torch.nn.Module):
     def __init__(self, num_classes, scale=1.0):
         super(MeanAbsoluteError, self).__init__()
@@ -147,8 +147,9 @@ class MeanAbsoluteError(torch.nn.Module):
 
     def forward(self, pred, labels):
         pred = F.softmax(pred, dim=1)
-        label_one_hot = torch.nn.functional.one_hot(labels, self.num_classes).float().to(pred.device)
-        mae = 1. - torch.sum(label_one_hot * pred, dim=1)
+        if labels.dtype == torch.int64:  # 原始类别，进行one-hot
+            labels = torch.nn.functional.one_hot(labels, self.num_classes).float().to(pred.device)
+        mae = 1. - torch.sum(labels * pred, dim=1)
         # Note: Reduced MAE
         # Original: torch.abs(pred - label_one_hot).sum(dim=1)
         # $MAE = \sum_{k=1}^{K} |\bm{p}(k|\bm{x}) - \bm{q}(k|\bm{x})|$
@@ -170,6 +171,7 @@ class NGCEandMAE(torch.nn.Module):
         if self.onMean is not None:
             return loss
         return loss.mean()
+
 class AUELoss(nn.Module):
     def __init__(self, num_classes=10, a=1.5, q=0.9, eps=eps, scale=1.0):
         super(AUELoss, self).__init__()
