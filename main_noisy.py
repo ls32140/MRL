@@ -232,7 +232,15 @@ def main():
                 inputs_u[v] = batches[v][~selected[v]]
                 targets_u[v] = targets[v][~selected[v]]
 
-
+                # u_size = inputs_u[v].size()[0]
+                # x_size = inputs_x[v].size()[0]
+                # if x_size != 0:
+                #     index = np.random.permutation(x_size)
+                #     lam = 0.8
+                #     for i in range(u_size):
+                #         j = i % x_size
+                #         inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
+                #         targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[j]]
                 size = inputs_x[v].size()[0]
                 index = np.random.permutation(size)
                 lam = 0.8
@@ -366,7 +374,9 @@ def main():
 
             MAPs = np.zeros([n_view, n_view])
             val_dict = {}
+            test_dict = {}
             print_val_str = 'Validation: '
+            print_test_str = 'Test: '
 
             for i in range(n_view):
                 for j in range(n_view):
@@ -377,28 +387,31 @@ def main():
                     val_dict[key] = MAPs[i, j]
                     print_val_str = print_val_str + key +': %g\t' % val_dict[key]
 
+                    test_dict[key] = MAPs[i, j]
+                    print_test_str = print_test_str + key + ': %g\t' % test_dict[key]
+
 
             val_avg = MAPs.sum() / n_view / (n_view - 1.)
             val_dict['avg'] = val_avg
             print_val_str = print_val_str + 'Avg: %g' % val_avg
             summary_writer.add_scalars('Retrieval/valid', val_dict, epoch)
 
-            fea, lab = eval(test_loader, epoch, 'test')
+            # fea, lab = eval(test_loader, epoch, 'test')
             # if is_eval:
             #     fea = [fea[v][0: 2000] for v in range(n_view)]
             #     lab = [lab[v][0: 2000] for v in range(n_view)]
 
-            MAPs = np.zeros([n_view, n_view])
-            test_dict = {}
-            print_test_str = 'Test: '
-            for i in range(n_view):
-                for j in range(n_view):
-                    if i == j:
-                        continue
-                    MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
-                    key = '%s2%s' % (args.views[i], args.views[j])
-                    test_dict[key] = MAPs[i, j]
-                    print_test_str = print_test_str + key + ': %g\t' % test_dict[key]
+            # MAPs = np.zeros([n_view, n_view])
+            # test_dict = {}
+            # print_test_str = 'Test: '
+            # for i in range(n_view):
+            #     for j in range(n_view):
+            #         if i == j:
+            #             continue
+            #         MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
+            #         key = '%s2%s' % (args.views[i], args.views[j])
+            #         test_dict[key] = MAPs[i, j]
+            #         print_test_str = print_test_str + key + ': %g\t' % test_dict[key]
 
             test_avg = MAPs.sum() / n_view / (n_view - 1.)
             print_test_str = print_test_str + 'Avg: %g' % test_avg
