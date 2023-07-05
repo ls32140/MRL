@@ -270,11 +270,11 @@ def main():
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
 
-            # if epoch<2:
-            #     loss = args.beta * loss + (1. - args.beta)
-            # else:
-            #      loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
-            loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+            if epoch<2:
+                loss = args.beta * loss + (1. - args.beta)
+            else:
+                 loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+            # loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
 
             if epoch >= 0:
                 loss.backward()
