@@ -30,7 +30,7 @@ class cross_modal_dataset(data.Dataset):
             path = os.path.join(root_dir, 'wiki_clip.mat')
             # path = os.path.join(root_dir, 'wiki_deep_doc2vec_data_corr_ae.h5py')  # wiki_deep_doc2vec_data
         elif 'nus' in dataset.lower():
-            root_dir = os.path.join(root_dir, 'nuswide')
+            root_dir = os.path.join(root_dir, 'nus')
             path = os.path.join(root_dir, 'nus_clip.mat')
             valid_len = 5000
         elif 'inria' in dataset.lower():
