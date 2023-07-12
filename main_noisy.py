@@ -237,7 +237,7 @@ def main():
                 x_size = inputs_x[v].size()[0]
                 if x_size != 0:
                     index = np.random.permutation(x_size)
-                    lam = 0.5
+                    lam = 0.1
                     for i in range(int(u_size)):
                         j = i % x_size
                         inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
@@ -270,8 +270,8 @@ def main():
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
 
-            if epoch<2:
-                loss = args.beta * loss + (1. - args.beta)
+            if epoch < 2:
+                loss = loss
             else:
                  loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
             # loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
