@@ -20,7 +20,7 @@ import scipy.spatial
 from src.bmm import BetaMixture1D
 from src.loss import NGCEandMAE
 from src.loss import NCEandRCE
-
+from torch.nn import functional as F
 
 best_acc = 0  # best test accuracy
 start_epoch = 0
@@ -89,6 +89,8 @@ def main():
 
     embedding = torch.eye(train_dataset.class_num).cuda()
     embedding.requires_grad = False
+
+    fc1 = torch.nn.Linear(2048, 1024).cuda()
 
     parameters = [C]
     for v in range(n_view):
@@ -188,13 +190,19 @@ def main():
             outputs = [multi_models[v](batches[v]) for v in range(n_view)]
             preds = [outputs[v].mm(C) for v in range(n_view)]
 
-            mceloss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
-            losses = [torch.mean(mceloss[v]) for v in range(n_view)]
-            mceloss = torch.stack(mceloss).reshape(1, -1).squeeze()
+            # mceloss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
+            # losses = [torch.mean(mceloss[v]) for v in range(n_view)]
+            # mceloss = torch.stack(mceloss).reshape(1, -1).squeeze()
+            # loss = sum(losses)
+
+            ce_f = torch.nn.CrossEntropyLoss(reduction='none')
+            ce_loss = [ce_f(preds[v], targets[v]) for v in range(n_view)]
+            losses = [torch.mean(ce_loss[v]) for v in range(n_view)]
+            ce_loss = torch.stack(ce_loss).reshape(1, -1).squeeze()
             loss = sum(losses)
 
-            loss_nor = (mceloss - mceloss.min()) / (mceloss.max() - mceloss.min())
-            # loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
+            # loss_nor = (mceloss - mceloss.min()) / (mceloss.max() - mceloss.min())
+            loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
             bmm_A = BetaMixture1D(max_iters=10)
             loss_i = loss_nor.reshape(-1, 1)[0:batch_size].cpu().detach().numpy()
             bmm_A.fit(loss_i)
@@ -237,10 +245,14 @@ def main():
                 x_size = inputs_x[v].size()[0]
                 if x_size != 0:
                     index = np.random.permutation(x_size)
-                    lam = 0.1
+                    lam = 0.5
                     for i in range(int(u_size)):
                         j = i % x_size
-                        inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
+                        if v==0:
+                            inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
+                        else:
+                            a = torch.cat([inputs_u[v][i, :], inputs_x[v][index[j], :]], dim=0)
+                            inputs_u[v][i, :] = F.relu(fc1(a))
                         targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[j]]
 
                 # size = inputs_x[v].size()[0]
