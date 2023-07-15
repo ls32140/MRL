@@ -22,6 +22,20 @@ from numpy.testing import assert_array_almost_equal
 import h5py
 logger = getLogger()
 
+
+def mixgen_batch(data, lam=0.5):
+    image = data[0]
+    text = data[1]
+    size = image.size()[0]
+    index = np.random.permutation(size)
+    for i in range(size):
+        # image mixup
+        image[i, :] = lam * image[i, :] + (1 - lam) * image[index[i], :]
+        # text concat
+        text[i, :] = lam * text[i, :] + (1 - lam) * text[index[i], :]
+        # text[i] = text[i] + " " + text[index[i]]
+    return image, text
+
 class cross_modal_dataset(data.Dataset):
     def __init__(self, dataset, noisy_ratio, mode, noise_mode='sym', root_dir='data/', noise_file=None, pred=False, probability=[]):
         self.r = noisy_ratio # noise ratio
@@ -134,17 +148,7 @@ class cross_modal_dataset(data.Dataset):
                     self.train_data = self.default_train_data
                     self.noise_label = self.default_noise_label
 
-    def mixgen_batch(data, lam=0.5):
-        image = data[0]
-        text = data[1]
-        size = image.size()[0]
-        index = np.random.permutation(size)
-        for i in range(size):
-            # image mixup
-            image[i, :] = lam * image[i, :] + (1 - lam) * image[index[i], :]
-            # text concat
-            text[i] = text[i] + " " + text[index[i]]
-        return image, text
+
     def testClean(self, idx): # 选中的数据，有多少是干净的 （选中干净/选中）
         n_view = len(self.train_data)
         s = []
@@ -173,11 +177,21 @@ class cross_modal_dataset(data.Dataset):
         print("resetrio:", rio)
 
     def __getitem__(self, index):
-        data = [self.train_data[v][index] for v in range(len(self.train_data))]
-        label = [self.noise_label[v][index] for v in range(len(self.train_data))]
-        data2 = [self.train_data[v][index] for v in range(len(self.train_data))]
         if self.mode == 'labeled':
-            return data, label, index
+            data = [self.train_data[v][index] for v in range(len(self.train_data))]
+            label = [self.noise_label[v][index] for v in range(len(self.train_data))]
+            data1 = [[mixgen_batch(data)][v][index] for v in range(len(self.train_data))]
+            data2 = [[mixgen_batch(data)][v][index] for v in range(len(self.train_data))]
+            return data1, data2, label
+        elif self.mode == 'unlabeled':
+            data = [self.train_data[v][index] for v in range(len(self.train_data))]
+            data1 = [[mixgen_batch(data)][v][index] for v in range(len(self.train_data))]
+            data2 = [[mixgen_batch(data)][v][index] for v in range(len(self.train_data))]
+            return data1, data2
+        else: #all, test, val
+            data = [self.train_data[v][index] for v in range(len(self.train_data))]
+            label = [self.noise_label[v][index] for v in range(len(self.train_data))]
+            return data, label
 
     def __len__(self):
         return len(self.train_data[0])

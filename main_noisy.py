@@ -294,7 +294,13 @@ def main():
 
         unlabeled_train_iter = iter(unlabeled_trainloader)
         num_iter = (len(labeled_trainloader.dataset) // args.batch_size) + 1
-
+        for batch_idx, (inputs_x, inputs_x2, labels_x, w_x) in enumerate(labeled_trainloader):
+            try:
+                inputs_u, inputs_u2 = unlabeled_train_iter.next()
+            except:
+                unlabeled_train_iter = iter(unlabeled_trainloader)
+                inputs_u, inputs_u2 = unlabeled_train_iter.next()
+            batch_size = inputs_x.size(0)
 
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
