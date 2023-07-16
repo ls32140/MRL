@@ -23,6 +23,8 @@ import numpy.ma as ma
 from sklearn.mixture import GaussianMixture as GMM
 import torch.nn.functional as F
 from sklearn.preprocessing import LabelBinarizer
+from src.loss import NGCEandMAE
+from src.loss import NCEandRCE
 
 save_dir = 'aum'
 best_acc = 0  # best test accuracy
@@ -125,6 +127,12 @@ def main():
     elif args.loss == 'MCE':
         criterion = utils.MeanClusteringError(train_dataset.class_num,None ,tau=args.tau).cuda()
         criterion_no_mean = utils.MeanClusteringError(train_dataset.class_num,1 , tau=args.tau).cuda()
+    elif args.loss == 'APL':
+        criterion = NCEandRCE(1, 1, train_dataset.class_num)
+        criterion_no_mean = NCEandRCE(1, 1, train_dataset.class_num, 1)
+    elif args.loss == 'NGCEandMAE':
+        criterion = NGCEandMAE(1, 1, train_dataset.class_num, 0.7)
+        criterion_no_mean = NGCEandMAE(1, 1, train_dataset.class_num, 0.7, 1)
     else:
         raise Exception('No such loss function.')
 
@@ -235,16 +243,21 @@ def main():
             preds = [outputs[v].mm(C) for v in range(n_view)]
             for v in range(n_view):
                 result[v][index] = preds[v].cpu().detach().numpy()
-            s_CE_loss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
-            losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
-            s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
 
-            # ce_f  = torch.nn.CrossEntropyLoss(reduction='none')
-            # ce_loss = [ce_f(preds[v], targets[v]) for v in range(n_view)]
-            # ce_loss = torch.stack(ce_loss).reshape(1, -1).squeeze()
+            # s_CE_loss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
+            # losses = [torch.mean(s_CE_loss[v]) for v in range(n_view)]
+            # s_CE_loss = torch.stack(s_CE_loss).reshape(1, -1).squeeze()
+            # loss = sum(losses)
+            # loss_nor = (s_CE_loss - s_CE_loss.min()) / (s_CE_loss.max() - s_CE_loss.min())
 
-            loss_nor = (s_CE_loss - s_CE_loss.min()) / (s_CE_loss.max() - s_CE_loss.min())
-            # loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
+            ce_f = torch.nn.CrossEntropyLoss(reduction='none')
+            ce_loss = [ce_f(preds[v], targets[v]) for v in range(n_view)]
+            losses = [torch.mean(ce_loss[v]) for v in range(n_view)]
+            ce_loss = torch.stack(ce_loss).reshape(1, -1).squeeze()
+            loss = sum(losses)
+            loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
+
+
             bmm_A = BetaMixture1D(max_iters=10)
             loss_i = loss_nor.reshape(-1, 1)[0:batch_size].cpu().detach().numpy()
             bmm_A.fit(loss_i)
@@ -341,12 +354,12 @@ def main():
                 # select_idx2[v] = torch.cat([select_idx2[v], s2], dim=0)
 
 
-            contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            # contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
-            # if epoch < 10:
-            #     loss_all = 1 * s_CE_loss+ 1 * contrastiveLoss
-            # else:
-            loss = 0.8 * torch.mean(s_CE_loss) + 0.4 * torch.mean(contrastiveLoss) + 0.2 * lx_loss
+            # contrastiveLoss = 0.05*contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, targets, tau=args.tau)
+            if epoch < 2:
+                loss = loss
+            else:
+                loss = 1 * torch.mean(contrastiveLoss) + 1 * lx_loss
             # ind_sorted = np.argsort(loss_all.cpu().detach().numpy())
             # loss_sorted = loss_all[ind_sorted]
             # remember_rate = 1
