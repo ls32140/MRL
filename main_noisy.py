@@ -239,6 +239,9 @@ def main():
                 inputs_u[v] = batches[v][~selected[v]]
                 targets_u[v] = torch.nn.functional.one_hot(targets[v][~selected[v]], train_dataset.class_num).float()
 
+                # p = multi_models[v](inputs_u[v]).mm(C).argmax(1)
+                # targets_u[v] = torch.nn.functional.one_hot(p, train_dataset.class_num).float()
+
                 u_size = inputs_u[v].size()[0]
                 x_size = inputs_x[v].size()[0]
                 if x_size != 0:
