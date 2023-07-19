@@ -4,7 +4,7 @@ import torch
 
 # import numpy as np
 # import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 # import torch
 from utils.config import args
 import torch.optim as optim
@@ -41,6 +41,7 @@ def load_dict(model, path):
 
 def main():
     print('===> Preparing data ..')
+
     train_dataset = cross_modal_dataset(args.data_name, args.noisy_ratio, 'train')
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -167,6 +168,7 @@ def main():
             select_sim = (top_value.sum()).reshape(1, -1).squeeze()
             loss.append(-(select_sim / masked_sim1.sum(1)).log().mean())
         return loss[0] + loss[1]
+
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
@@ -229,25 +231,34 @@ def main():
             targets_x = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
             inputs_u = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
             targets_u = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
+            ptu = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
             all_inputs = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
             all_targets = [torch.tensor([], dtype=torch.float32) for v in range(n_view)]
+
+            l = np.random.beta(args.alpha, args.alpha)
+            lam = max(l, 1 - l)
 
             for v in range(n_view):
                 inputs_x[v] = batches[v][selected[v]]
                 targets_x[v] = torch.nn.functional.one_hot(targets[v][selected[v]], train_dataset.class_num).float()
 
                 inputs_u[v] = batches[v][~selected[v]]
-                targets_u[v] = torch.nn.functional.one_hot(targets[v][~selected[v]], train_dataset.class_num).float()
+                # ptu[v] = torch.softmax(preds[v][~selected[v]], dim=1) ** (1 / args.T)  # temparature sharpening
+                ptu[v] = preds[v][~selected[v]] ** (1 / args.T)  # temparature sharpening
+                targets_u[v] = ptu[v] / ptu[v].sum(dim=1, keepdim=True)  # normalize
+                targets_u[v] = targets_u[v].detach()
+                # targets_u[v] = torch.nn.functional.one_hot(targets[v][~selected[v]], train_dataset.class_num).float()
 
                 u_size = inputs_u[v].size()[0]
                 x_size = inputs_x[v].size()[0]
                 if x_size != 0:
                     index = np.random.permutation(x_size)
-                    lam = 0.1
+                    # lam = 0.5
                     for i in range(int(u_size)):
                         j = i % x_size
                         inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
                         targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[j]]
+
 
                 # size = inputs_x[v].size()[0]
                 # index = np.random.permutation(size)
@@ -264,22 +275,23 @@ def main():
                 #     inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[i], :]
                 #     targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[i]]
 
-                all_inputs[v] = torch.cat([inputs_x[v], inputs_u[v]], dim=0).cuda()
-                all_targets[v] = torch.cat([targets_x[v], targets_u[v]], dim=0).cuda()
+                # all_inputs[v] = torch.cat([inputs_x[v], inputs_u[v]], dim=0).cuda()
+                # all_targets[v] = torch.cat([targets_x[v], targets_u[v]], dim=0).cuda()
 
-
-
-            outputs1 = [multi_models[v](all_inputs[v]) for v in range(n_view)]
-            preds1 = [outputs1[v].mm(C) for v in range(n_view)]
-            losses1 = [criterion(preds1[v], all_targets[v]) for v in range(n_view)]
-            loss1 = sum(losses1)
+            outputs_x = [multi_models[v](inputs_x[v]) for v in range(n_view)]
+            outputs_u = [multi_models[v](inputs_u[v]) for v in range(n_view)]
+            preds_x = [outputs_x[v].mm(C) for v in range(n_view)]
+            preds_u = [outputs_u[v].mm(C) for v in range(n_view)]
+            losses1 = [criterion(preds_x[v], targets_x[v]) for v in range(n_view)]
+            losses2 = [torch.mean((preds_u[v] - targets_u[v])**2) for v in range(n_view)]
+            loss1 = sum(losses1) + sum(losses2)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
 
-            if epoch < 4:
+            if epoch < 2:
                 loss = loss
             else:
-                 loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
+                loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
             # loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
 
             if epoch >= 0:
