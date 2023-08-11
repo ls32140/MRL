@@ -188,19 +188,19 @@ def main():
             outputs = [multi_models[v](batches[v]) for v in range(n_view)]
             preds = [outputs[v].mm(C) for v in range(n_view)]
 
-            # mceloss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
-            # losses = [torch.mean(mceloss[v]) for v in range(n_view)]
-            # mceloss = torch.stack(mceloss).reshape(1, -1).squeeze()
-            # loss = sum(losses)
-
-            ce_f = torch.nn.CrossEntropyLoss(reduction='none')
-            ce_loss = [ce_f(preds[v], targets[v]) for v in range(n_view)]
-            losses = [torch.mean(ce_loss[v]) for v in range(n_view)]
-            ce_loss = torch.stack(ce_loss).reshape(1, -1).squeeze()
+            mceloss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
+            losses = [torch.mean(mceloss[v]) for v in range(n_view)]
+            mceloss = torch.stack(mceloss).reshape(1, -1).squeeze()
             loss = sum(losses)
+            loss_nor = (mceloss - mceloss.min()) / (mceloss.max() - mceloss.min())
 
-            # loss_nor = (mceloss - mceloss.min()) / (mceloss.max() - mceloss.min())
-            loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
+            # ce_f = torch.nn.CrossEntropyLoss(reduction='none')
+            # ce_loss = [ce_f(torch.softmax(preds[v], dim=1), targets[v]) for v in range(n_view)]
+            # losses = [torch.mean(ce_loss[v]) for v in range(n_view)]
+            # ce_loss = torch.stack(ce_loss).reshape(1, -1).squeeze()
+            # loss = sum(losses)
+            # loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
+
             bmm_A = BetaMixture1D(max_iters=10)
             loss_i = loss_nor.reshape(-1, 1)[0:batch_size].cpu().detach().numpy()
             bmm_A.fit(loss_i)
@@ -270,8 +270,6 @@ def main():
                 all_inputs[v] = torch.cat([inputs_x[v], inputs_u[v]], dim=0).cuda()
                 all_targets[v] = torch.cat([targets_x[v], targets_u[v]], dim=0).cuda()
 
-
-
             outputs1 = [multi_models[v](all_inputs[v]) for v in range(n_view)]
             preds1 = [outputs1[v].mm(C) for v in range(n_view)]
             losses1 = [criterion(preds1[v], all_targets[v]) for v in range(n_view)]
@@ -279,7 +277,7 @@ def main():
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
 
-            if epoch < 4:
+            if epoch < 2:
                 loss = loss
             else:
                  loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
