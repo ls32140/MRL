@@ -6,6 +6,7 @@
 #
 import random
 from logging import getLogger
+import torch
 
 import cv2
 from PIL import ImageFilter, Image
@@ -28,8 +29,8 @@ class cross_modal_dataset(data.Dataset):
         doc2vec = True
         if 'wiki' in dataset.lower():
             root_dir = os.path.join(root_dir, 'wiki')
-            path = os.path.join(root_dir, 'wiki_clip.mat')
-            # path = os.path.join(root_dir, 'wiki_deep_doc2vec_data_corr_ae.h5py')  # wiki_deep_doc2vec_data
+            # path = os.path.join(root_dir, 'wiki_clip.mat')
+            path = os.path.join(root_dir, 'wiki_deep_doc2vec_data_corr_ae.h5py')  # wiki_deep_doc2vec_data
             valid_len = 131
         elif 'nus' in dataset.lower():
             root_dir = os.path.join(root_dir, 'nuswide')
@@ -61,75 +62,75 @@ class cross_modal_dataset(data.Dataset):
 
         if doc2vec:
             if 'wiki' in dataset.lower():
-                # h = h5py.File(path)
-                # if self.mode == 'test' or self.mode == 'valid':
-                #     test_imgs_deep = h['test_imgs_deep'][()].astype('float32')
-                #     test_imgs_labels = h['test_imgs_labels'][()]
-                #     test_imgs_labels -= np.min(test_imgs_labels)
-                #     try:
-                #         test_texts_idx = h['test_text'][()].astype('float32')
-                #     except Exception as e:
-                #         test_texts_idx = h['test_texts'][()].astype('float32')
-                #     test_texts_labels = h['test_texts_labels'][()]
-                #     test_texts_labels -= np.min(test_texts_labels)
-                #     test_data = [test_imgs_deep, test_texts_idx]
-                #     test_labels = [test_imgs_labels, test_texts_labels]
-                #
-                #     valid_flag = True
-                #     try:
-                #         valid_texts_idx = h['valid_text'][()].astype('float32')
-                #     except Exception as e:
-                #         try:
-                #             valid_texts_idx = h['valid_texts'][()].astype('float32')
-                #         except Exception as e:
-                #             valid_flag = False
-                #             valid_data = [test_data[0][0: valid_len], test_data[1][0: valid_len]]
-                #             valid_labels = [test_labels[0][0: valid_len], test_labels[1][0: valid_len]]
-                #
-                #             test_data = [test_data[0][valid_len::], test_data[1][valid_len::]]
-                #             test_labels = [test_labels[0][valid_len::], test_labels[1][valid_len::]]
-                #     if valid_flag:
-                #         valid_imgs_deep = h['valid_imgs_deep'][()].astype('float32')
-                #         valid_imgs_labels = h['valid_imgs_labels'][()]
-                #         valid_texts_labels = h['valid_texts_labels'][()]
-                #         valid_texts_labels -= np.min(valid_texts_labels)
-                #         valid_data = [valid_imgs_deep, valid_texts_idx]
-                #         valid_labels = [valid_imgs_labels, valid_texts_labels]
-                #
-                #     train_data = valid_data if self.mode == 'valid' else test_data
-                #     train_label = valid_labels if self.mode == 'valid' else test_labels
-                # elif self.mode == 'train':
-                #     tr_img = h['train_imgs_deep'][()].astype('float32')
-                #     tr_img_lab = h['train_imgs_labels'][()]
-                #     tr_img_lab -= np.min(tr_img_lab)
-                #     try:
-                #         tr_txt = h['train_text'][()].astype('float32')
-                #     except Exception as e:
-                #         tr_txt = h['train_texts'][()].astype('float32')
-                #     tr_txt_lab = h['train_texts_labels'][()]
-                #     tr_txt_lab -= np.min(tr_txt_lab)
-                #     train_data = [tr_img, tr_txt]
-                #     train_label = [tr_img_lab, tr_txt_lab]
-                # else:
-                #     raise Exception('Have no such set mode!')
-                # h.close()
+                h = h5py.File(path)
+                if self.mode == 'test' or self.mode == 'valid':
+                    test_imgs_deep = h['test_imgs_deep'][()].astype('float32')
+                    test_imgs_labels = h['test_imgs_labels'][()]
+                    test_imgs_labels -= np.min(test_imgs_labels)
+                    try:
+                        test_texts_idx = h['test_text'][()].astype('float32')
+                    except Exception as e:
+                        test_texts_idx = h['test_texts'][()].astype('float32')
+                    test_texts_labels = h['test_texts_labels'][()]
+                    test_texts_labels -= np.min(test_texts_labels)
+                    test_data = [test_imgs_deep, test_texts_idx]
+                    test_labels = [test_imgs_labels, test_texts_labels]
 
-                data = sio.loadmat(path)
-                if self.mode == 'train':
-                    train_data = [data['tr_fc7'].astype('float32'),
-                                  data['tr_text'].astype('float32')]
-                    train_label = [data['tr_label'].reshape([-1]).astype('int64'),
-                                   data['tr_label'].reshape([-1]).astype('int64')]
-                elif self.mode == 'valid':
-                    train_data = [data['te_fc7'][0: valid_len].astype('float32'),
-                                  data['te_text'][0: valid_len].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1])[0: valid_len].astype('int64'),
-                                   data['te_label'].reshape([-1])[0: valid_len].astype('int64')]
-                elif self.mode == 'test':
-                    train_data = [data['te_fc7'][valid_len:].astype('float32'),
-                                  data['te_text'][valid_len:].astype('float32')]
-                    train_label = [data['te_label'].reshape([-1])[valid_len:].astype('int64'),
-                                   data['te_label'].reshape([-1])[valid_len:].astype('int64')]
+                    valid_flag = True
+                    try:
+                        valid_texts_idx = h['valid_text'][()].astype('float32')
+                    except Exception as e:
+                        try:
+                            valid_texts_idx = h['valid_texts'][()].astype('float32')
+                        except Exception as e:
+                            valid_flag = False
+                            valid_data = [test_data[0][0: valid_len], test_data[1][0: valid_len]]
+                            valid_labels = [test_labels[0][0: valid_len], test_labels[1][0: valid_len]]
+
+                            test_data = [test_data[0][valid_len::], test_data[1][valid_len::]]
+                            test_labels = [test_labels[0][valid_len::], test_labels[1][valid_len::]]
+                    if valid_flag:
+                        valid_imgs_deep = h['valid_imgs_deep'][()].astype('float32')
+                        valid_imgs_labels = h['valid_imgs_labels'][()]
+                        valid_texts_labels = h['valid_texts_labels'][()]
+                        valid_texts_labels -= np.min(valid_texts_labels)
+                        valid_data = [valid_imgs_deep, valid_texts_idx]
+                        valid_labels = [valid_imgs_labels, valid_texts_labels]
+
+                    train_data = valid_data if self.mode == 'valid' else test_data
+                    train_label = valid_labels if self.mode == 'valid' else test_labels
+                elif self.mode == 'train':
+                    tr_img = h['train_imgs_deep'][()].astype('float32')
+                    tr_img_lab = h['train_imgs_labels'][()]
+                    tr_img_lab -= np.min(tr_img_lab)
+                    try:
+                        tr_txt = h['train_text'][()].astype('float32')
+                    except Exception as e:
+                        tr_txt = h['train_texts'][()].astype('float32')
+                    tr_txt_lab = h['train_texts_labels'][()]
+                    tr_txt_lab -= np.min(tr_txt_lab)
+                    train_data = [tr_img, tr_txt]
+                    train_label = [tr_img_lab, tr_txt_lab]
+                else:
+                    raise Exception('Have no such set mode!')
+                h.close()
+
+                # data = sio.loadmat(path)
+                # if self.mode == 'train':
+                #     train_data = [data['tr_fc7'].astype('float32'),
+                #                   data['tr_text'].astype('float32')]
+                #     train_label = [data['tr_label'].reshape([-1]).astype('int64'),
+                #                    data['tr_label'].reshape([-1]).astype('int64')]
+                # elif self.mode == 'valid':
+                #     train_data = [data['te_fc7'][0: valid_len].astype('float32'),
+                #                   data['te_text'][0: valid_len].astype('float32')]
+                #     train_label = [data['te_label'].reshape([-1])[0: valid_len].astype('int64'),
+                #                    data['te_label'].reshape([-1])[0: valid_len].astype('int64')]
+                # elif self.mode == 'test':
+                #     train_data = [data['te_fc7'][valid_len:].astype('float32'),
+                #                   data['te_text'][valid_len:].astype('float32')]
+                #     train_label = [data['te_label'].reshape([-1])[valid_len:].astype('int64'),
+                #                    data['te_label'].reshape([-1])[valid_len:].astype('int64')]
 
             elif 'ps' in dataset.lower():
                 data = sio.loadmat(path)
@@ -224,11 +225,13 @@ class cross_modal_dataset(data.Dataset):
         #     classes
         #     self.transition = {}
         #
-        train_label = [la.astype('int64') for la in train_label]
-        noise_label = train_label
+
+        self.train_label = [la.astype('int64') for la in train_label]
+        noise_label = self.train_label
+
         if noise_file is None:
             if noise_mode == 'sym':
-                noise_file = os.path.join(root_dir, 'noise_labels_%g_sym.json' % self.r)
+                noise_file = os.path.join(root_dir, 'noise_labels_%g_sym1.json' % self.r)
             elif noise_mode == 'asym':
                 noise_file = os.path.join(root_dir, 'noise_labels_%g__asym.json' % self.r)
         if self.mode == 'train':
@@ -276,33 +279,42 @@ class cross_modal_dataset(data.Dataset):
         else:
             self.prob = None
 
-    def reset(self, pred, prob, mode='labeled'):
-        if pred is None:
-            self.prob = None
-            self.train_data = self.default_train_data
-            self.noise_label = self.default_noise_label
-        elif mode == 'labeled':
-            inx = np.stack(pred).sum(0) > 0.5
-            self.train_data = [dd[inx] for dd in self.default_train_data]
-            self.noise_label = [dd[inx] for dd in self.default_noise_label]
-            probs = np.stack(prob)[:, inx]
-            prob_inx = probs.argmax(0)
-            labels = np.stack(self.noise_label)[prob_inx, np.arange(probs.shape[1])]
-            prob = probs[prob_inx, np.arange(probs.shape[1])]
-            self.noise_label = [labels for _ in range(len(self.default_noise_label))]
-            self.prob = [prob, prob]
-        elif mode == 'unlabeled':
-            inx = np.stack(pred).sum(0) <= 0.5
-            self.train_data = [dd[inx] for dd in self.default_train_data]
-            self.noise_label = [dd[inx] for dd in self.default_noise_label]
-            self.prob = [dd[inx] for dd in prob]
-        else:
-            self.train_data = self.default_train_data
-            # inx = (np.stack(pred).sum(0) <= 0.5).float()
-            inx = [(p <= 0.5).astype('float32') for p in pred]
-            self.noise_label = [self.default_noise_label[i] * (1. - inx[i]) - inx[i] for i in range(len(self.default_noise_label))]
-            self.prob = prob
 
+    def testClean(self, idx):
+        n_view = len(self.train_data)
+        s = []
+        for v in range(n_view):
+            id = idx[v]
+            a = self.noise_label[v][id] - self.train_label[v][id]
+            cnt_array = np.where(a, 0, 1)
+            s.append(cnt_array)
+        p = np.hstack(s)
+        num = np.sum(p)
+        rio = num / len(p)
+        print(num, len(p))
+        print("rio:", rio)
+
+    def reset1(self, pred, epoch):
+        n_view = len(self.train_data)
+        size = self.noise_label.shape[1]
+        reset_rate = (epoch + 1) / 100
+        print('num_reset', reset_rate)
+        num_reset = int(reset_rate * size *2)
+
+        random_indices = np.random.choice(size*2, size=num_reset, replace=False)
+        n = self.noise_label.flatten()
+        pp = []
+        for v in range(n_view):
+            pp.append(pred[v].argmax(1))
+        p = np.array(pp).flatten()
+        n[random_indices] = p[random_indices]
+        self.noise_label = n.reshape(2, -1)
+        s = self.noise_label - self.train_label
+        cnt_array = np.where(s, 0, 1)
+        num = np.sum(cnt_array)
+        ppp = self.train_data[0].shape[0] * 2
+        rio = num / ppp
+        print("resetrio:", rio)
 
     def __getitem__(self, index):
         if self.prob is None:
