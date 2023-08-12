@@ -166,8 +166,21 @@ def main():
             outputs = [multi_models[v](batches[v]) for v in range(n_view)]
             preds = [outputs[v].mm(C) for v in range(n_view)]
             p = [F.softmax(preds[v] / args.tau, dim=1) for v in range(n_view)]
+            pp = []
             for v in range(n_view):
                 result[v][index] = p[v].cpu().detach().numpy()
+                ap = p[v].cpu().detach().numpy()
+                pp.append(ap.argmax(1))
+
+            reset_rate = (epoch + 1) / 100
+            num_reset = int(reset_rate * batch_size * 2)
+            random_indices = np.random.choice(batch_size * 2, size=num_reset, replace=False)
+            t = torch.stack(targets).reshape([-1]).cpu().detach().numpy()
+            ppp = np.array(pp).flatten()
+            t[random_indices] = ppp[random_indices]
+            targets = torch.tensor(t.reshape(2, -1).tolist()).cuda()
+
+
             losses = [criterion(preds[v], targets[v]) for v in range(n_view)]
             loss = sum(losses)
             loss = args.beta * loss + (1. - args.beta) * cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
@@ -187,7 +200,7 @@ def main():
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
 
         # train_dataset.testClean(up_idx)
-        train_dataset.reset1(result, epoch)
+        # train_dataset.reset1(result, epoch)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
         summary_writer.add_scalars('Loss/train', train_dict, epoch)
