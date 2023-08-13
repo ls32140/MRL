@@ -194,14 +194,13 @@ def main():
             # losses = [torch.mean(mceloss[v]) for v in range(n_view)]
             # mceloss = torch.stack(mceloss).reshape(1, -1).squeeze()
             # loss = sum(losses)
+            # loss_nor = (mceloss - mceloss.min()) / (mceloss.max() - mceloss.min())
 
             ce_f = torch.nn.CrossEntropyLoss(reduction='none')
-            ce_loss = [ce_f(preds[v], targets[v]) for v in range(n_view)]
+            ce_loss = [ce_f(torch.softmax(preds[v], dim=1), targets[v]) for v in range(n_view)]
             losses = [torch.mean(ce_loss[v]) for v in range(n_view)]
             ce_loss = torch.stack(ce_loss).reshape(1, -1).squeeze()
             loss = sum(losses)
-
-            # loss_nor = (mceloss - mceloss.min()) / (mceloss.max() - mceloss.min())
             loss_nor = (ce_loss - ce_loss.min()) / (ce_loss.max() - ce_loss.min())
             bmm_A = BetaMixture1D(max_iters=10)
             loss_i = loss_nor.reshape(-1, 1)[0:batch_size].cpu().detach().numpy()
@@ -243,8 +242,8 @@ def main():
                 targets_x[v] = torch.nn.functional.one_hot(targets[v][selected[v]], train_dataset.class_num).float()
 
                 inputs_u[v] = batches[v][~selected[v]]
-                # ptu[v] = torch.softmax(preds[v][~selected[v]], dim=1) ** (1 / args.T)  # temparature sharpening
-                ptu[v] = preds[v][~selected[v]] ** (1 / args.T)  # temparature sharpening
+                ptu[v] = torch.softmax(preds[v][~selected[v]], dim=1) ** (1 / args.T)  # temparature sharpening
+                # ptu[v] = preds[v][~selected[v]] ** (1 / args.T)  # temparature sharpening
                 targets_u[v] = ptu[v] / ptu[v].sum(dim=1, keepdim=True)  # normalize
                 targets_u[v] = targets_u[v].detach()
                 # targets_u[v] = torch.nn.functional.one_hot(targets[v][~selected[v]], train_dataset.class_num).float()
@@ -288,7 +287,7 @@ def main():
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
 
-            if epoch < 2:
+            if epoch < 4:
                 loss = loss
             else:
                 loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
