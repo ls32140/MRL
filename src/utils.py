@@ -133,10 +133,11 @@ class MeanClusteringError(nn.Module):
     Mean Absolute Error
     """
 
-    def __init__(self, num_classes, tau=1):
+    def __init__(self, num_classes,on_mean=None, tau=1):
         super(MeanClusteringError, self).__init__()
         self.register_buffer('embedding', torch.eye(num_classes))
         self.tau = tau
+        self.onMean = on_mean
 
     def to_onehot(self, target):
         return self.embedding[target]
@@ -145,4 +146,6 @@ class MeanClusteringError(nn.Module):
         pred = F.softmax(input / self.tau, dim=1)
         q = self.to_onehot(target).detach()
         p = ((1. - q) * pred).sum(1) / pred.sum(1)
+        if self.onMean is not None:
+            return p.log()
         return (p.log()).mean()

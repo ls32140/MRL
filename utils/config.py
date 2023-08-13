@@ -25,6 +25,8 @@ parser.add_argument('--beta', type=float, default=0.5)
 parser.add_argument('--tau', type=float, default=1.)
 parser.add_argument('--optimizer', type=str, default='Adam')
 parser.add_argument('--views', nargs='+', help='<Required> Quantization bits', default=['Img', 'Txt', 'Audio', '3D', 'Video']) #Img, Txt, Audio, 3D, Video
+parser.add_argument('--alpha', type=float, default=0.75)
+parser.add_argument('--T', default=0.5, type=float, help='sharpening temperature')
 
 args = parser.parse_args()
 print(args)

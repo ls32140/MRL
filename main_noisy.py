@@ -17,6 +17,7 @@ from src.noisydataset import cross_modal_dataset
 import src.utils as utils
 import scipy
 import scipy.spatial
+import torch.nn.functional as F
 
 
 best_acc = 0  # best test accuracy
@@ -102,7 +103,8 @@ def main():
     if args.loss == 'CE':
         criterion = torch.nn.CrossEntropyLoss().cuda()
     elif args.loss == 'MCE':
-        criterion = utils.MeanClusteringError(train_dataset.class_num, tau=args.tau).cuda()
+        criterion = utils.MeanClusteringError(train_dataset.class_num,None, tau=args.tau).cuda()
+        criterion_no_mean = utils.MeanClusteringError(train_dataset.class_num, 1, tau=args.tau).cuda()
     else:
         raise Exception('No such loss function.')
 
@@ -127,7 +129,7 @@ def main():
         for v in range(n_view):
             multi_models[v].eval()
 
-    def cross_modal_contrastive_ctriterion(fea, tau=1.):
+    def cross_modal_contrastive_ctriterion(fea,  tau=1.):
         batch_size = fea[0].shape[0]
         all_fea = torch.cat(fea)
         sim = all_fea.mm(all_fea.t())
@@ -146,10 +148,14 @@ def main():
     def train(epoch):
         print('\nEpoch: %d / %d' % (epoch, args.max_epochs))
         set_train()
+        result = [np.zeros((len(train_dataset), train_dataset.class_num), dtype=np.float32) for i in range(n_view)]
+        up_idx = [torch.tensor([], dtype=np.int) for i in range(n_view)]
         train_loss, loss_list, correct_list, total_list = 0., [0.] * n_view, [0.] * n_view, [0.] * n_view
 
         for batch_idx, (batches, targets, index) in enumerate(train_loader):
+            index = index
             batches, targets = [batches[v].cuda() for v in range(n_view)], [targets[v].cuda() for v in range(n_view)]
+            batch_size = batches[0].shape[0]
             norm = C.norm(dim=0, keepdim=True)
             C.data = (C / norm).detach()
 
@@ -159,9 +165,26 @@ def main():
 
             outputs = [multi_models[v](batches[v]) for v in range(n_view)]
             preds = [outputs[v].mm(C) for v in range(n_view)]
+            p = [F.softmax(preds[v] / args.tau, dim=1) for v in range(n_view)]
+            pp = []
+            for v in range(n_view):
+                result[v][index] = p[v].cpu().detach().numpy()
+                ap = p[v].cpu().detach().numpy()
+                pp.append(ap.argmax(1))
+
+            reset_rate = (epoch + 1) / args.max_epochs
+            num_reset = int(reset_rate * batch_size * 2)
+            random_indices = np.random.choice(batch_size * 2, size=num_reset, replace=False)
+            t = torch.stack(targets).reshape([-1]).cpu().detach().numpy()
+            ppp = np.array(pp).flatten()
+            t[random_indices] = ppp[random_indices]
+            targets = torch.tensor(t.reshape(2, -1).tolist()).cuda()
+
+
             losses = [criterion(preds[v], targets[v]) for v in range(n_view)]
             loss = sum(losses)
             loss = args.beta * loss + (1. - args.beta) * cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
+
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
@@ -176,6 +199,8 @@ def main():
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f | LR: %g'
                          % (train_loss / (batch_idx + 1), optimizer.param_groups[0]['lr']))
 
+        # train_dataset.testClean(up_idx)
+        # train_dataset.reset1(result, epoch)
         train_dict = {('view_%d_loss' % v): loss_list[v] / len(train_loader) for v in range(n_view)}
         train_dict['sum_loss'] = train_loss / len(train_loader)
         summary_writer.add_scalars('Loss/train', train_dict, epoch)
@@ -247,7 +272,7 @@ def main():
                 print_str = print_str + key + ': %.3f\t' % val_dict[key]
         return val_dict, print_str
 
-    def test(epoch, is_eval=True):
+    def test(epoch, is_eval=False):
             global best_acc
             set_eval()
             # switch to evaluate mode
@@ -311,9 +336,10 @@ def main():
             summary_writer.add_scalars('Retrieval/test', test_dict, epoch)
 
             print(print_val_str)
+            print(print_test_str)
             if val_avg > best_acc:
                 best_acc = val_avg
-                print(print_test_str)
+                # print(print_test_str)
                 print('Saving..')
                 state = {}
                 for v in range(n_view):
