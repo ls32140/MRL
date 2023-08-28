@@ -79,8 +79,9 @@ class GeneralizedCrossEntropy(torch.nn.Module):
     def forward(self, pred, labels):
         pred = F.softmax(pred, dim=1)
         pred = torch.clamp(pred, min=1e-7, max=1.0)
-        label_one_hot = torch.nn.functional.one_hot(labels, self.num_classes).float().to(pred.device)
-        gce = (1. - torch.pow(torch.sum(label_one_hot * pred, dim=1), self.q)) / self.q
+        if labels.dtype == torch.int64:  # 原始类别，进行one-hot
+            labels = torch.nn.functional.one_hot(labels, self.num_classes).float().to(pred.device)
+        gce = (1. - torch.pow(torch.sum(labels * pred, dim=1), self.q)) / self.q
         if self.onMean is not None:
             return gce
         return gce.mean()
@@ -139,10 +140,11 @@ class NormalizedGeneralizedCrossEntropy(torch.nn.Module):
             return loss
         return loss.mean()
 class MeanAbsoluteError(torch.nn.Module):
-    def __init__(self, num_classes, scale=1.0):
+    def __init__(self, num_classes, scale=1.0, onMean=None):
         super(MeanAbsoluteError, self).__init__()
         self.num_classes = num_classes
         self.scale = scale
+        self.onMean = onMean
         return
 
     def forward(self, pred, labels):
@@ -156,14 +158,17 @@ class MeanAbsoluteError(torch.nn.Module):
         # $MAE = \sum_{k=1}^{K}\bm{p}(k|\bm{x}) - p(y|\bm{x}) + (1 - p(y|\bm{x}))$
         # $MAE = 2 - 2p(y|\bm{x})$
         #
-        return self.scale * mae
+        loss = self.scale * mae
+        if self.onMean is not None:
+            return loss
+        return loss.mean()
 
 class NGCEandMAE(torch.nn.Module):
     def __init__(self, alpha, beta, num_classes, q=0.7, onMean=None):
         super(NGCEandMAE, self).__init__()
         self.num_classes = num_classes
         self.ngce = NormalizedGeneralizedCrossEntropy(scale=alpha, q=q, num_classes=num_classes)
-        self.mae = MeanAbsoluteError(scale=beta, num_classes=num_classes)
+        self.mae = MeanAbsoluteError(scale=beta, num_classes=num_classes, onMean=1)
         self.onMean = onMean
 
     def forward(self, pred, labels):

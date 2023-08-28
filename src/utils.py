@@ -144,7 +144,11 @@ class MeanClusteringError(nn.Module):
 
     def forward(self, input, target, threshold=1):
         pred = F.softmax(input / self.tau, dim=1)
-        q = self.to_onehot(target).detach()
+        if target.dtype == torch.int64:
+            q = self.to_onehot(target).detach()
+        else:
+            q = target
+
         p = ((1. - q) * pred).sum(1) / pred.sum(1)
         if self.onMean is not None:
             return p.log()

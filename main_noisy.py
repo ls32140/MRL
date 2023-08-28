@@ -20,6 +20,10 @@ import scipy.spatial
 from src.bmm import BetaMixture1D
 from src.loss import NGCEandMAE
 from src.loss import NCEandRCE
+from src.loss import SCELoss
+from src.loss import GeneralizedCrossEntropy
+from src.loss import NormalizedGeneralizedCrossEntropy
+from src.loss import MeanAbsoluteError
 
 
 best_acc = 0  # best test accuracy
@@ -113,6 +117,18 @@ def main():
     elif args.loss == 'NGCEandMAE':
         criterion = NGCEandMAE(1, 1, train_dataset.class_num,0.7)
         criterion_no_mean = NGCEandMAE(1, 1, train_dataset.class_num,0.7, 1)
+    elif args.loss == 'SCE':
+        criterion = SCELoss(train_dataset.class_num, 0.1, 1)
+        criterion_no_mean = SCELoss(train_dataset.class_num, 0.1, 1, 1)
+    elif args.loss == 'GCE':
+        criterion = GeneralizedCrossEntropy(train_dataset.class_num, 0.7)
+        criterion_no_mean = GeneralizedCrossEntropy(train_dataset.class_num, 0.7, 1)
+    elif args.loss == 'NGCE':
+        criterion = NormalizedGeneralizedCrossEntropy(train_dataset.class_num, 1, 0.7)
+        criterion_no_mean = NormalizedGeneralizedCrossEntropy(train_dataset.class_num, 1, 0.7, 1)
+    elif args.loss == 'MAE':
+        criterion = MeanAbsoluteError(scale=1, num_classes=train_dataset.class_num)
+        criterion_no_mean = MeanAbsoluteError(scale=1, num_classes=train_dataset.class_num, onMean=1)
     else:
         raise Exception('No such loss function.')
 
