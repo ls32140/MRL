@@ -28,6 +28,11 @@ args.ckpt_dir = os.path.join(args.root_dir, 'ckpt', args.ckpt_dir)
 os.makedirs(args.log_dir, exist_ok=True)
 os.makedirs(args.ckpt_dir, exist_ok=True)
 
+resultList = {
+        "Img2Txt": [],
+        "Txt2Img": []
+    }
+
 def load_dict(model, path):
     chp = torch.load(path)
     state_dict = model.state_dict()
@@ -247,7 +252,7 @@ def main():
                 print_str = print_str + key + ': %.3f\t' % val_dict[key]
         return val_dict, print_str
 
-    def test(epoch, is_eval=True):
+    def test(epoch, is_eval=False):
             global best_acc
             set_eval()
             # switch to evaluate mode
@@ -278,6 +283,7 @@ def main():
                     if i == j:
                         continue
                     MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
+
                     key = '%s2%s' % (args.views[i], args.views[j])
                     val_dict[key] = MAPs[i, j]
                     print_val_str = print_val_str + key +': %g\t' % val_dict[key]
@@ -301,8 +307,10 @@ def main():
                     if i == j:
                         continue
                     MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
+
                     key = '%s2%s' % (args.views[i], args.views[j])
                     test_dict[key] = MAPs[i, j]
+                    resultList[key].append(round(MAPs[i, j], 4))
                     print_test_str = print_test_str + key + ': %g\t' % test_dict[key]
 
             test_avg = MAPs.sum() / n_view / (n_view - 1.)
@@ -339,7 +347,7 @@ def main():
         if test_dict['avg'] == best_acc:
             multi_model_state_dict = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in multi_models]
             W_best = C.clone()
-
+    print(resultList)
     print('Evaluation on Last Epoch:')
     fea, lab = eval(test_loader, epoch, 'test')
     test_dict, print_str = multiview_test(fea, lab)
