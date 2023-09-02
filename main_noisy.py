@@ -29,8 +29,10 @@ os.makedirs(args.log_dir, exist_ok=True)
 os.makedirs(args.ckpt_dir, exist_ok=True)
 
 resultList = {
-        "Img2Txt": [],
-        "Txt2Img": []
+    "Img2Txt": [],
+    "Txt2Img": [],
+    "trainImg2Txt": [],
+    "trainTxt2Img": []
     }
 
 def load_dict(model, path):
@@ -256,18 +258,25 @@ def main():
             global best_acc
             set_eval()
             # switch to evaluate mode
-            # fea, lab = eval(train_loader, epoch, 'train')
-            #
-            # MAPs = np.zeros([n_view, n_view])
-            # train_dict = {}
-            # for i in range(n_view):
-            #     for j in range(n_view):
-            #         MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
-            #         train_dict['%s2%s' % (args.views[i], args.views[j])] = MAPs[i, j]
-            #
-            # train_avg = MAPs.sum() / n_view / (n_view - 1.)
-            # train_dict['avg'] = train_avg
-            # summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
+            fea, lab = eval(train_loader, epoch, 'train')
+
+            MAPs = np.zeros([n_view, n_view])
+            train_dict = {}
+            print_train_str = 'train:'
+            for i in range(n_view):
+                for j in range(n_view):
+                    if i == j:
+                        continue
+                    MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
+                    train_dict['train%s2%s' % (args.views[i], args.views[j])] = MAPs[i, j]
+                    key = 'train%s2%s' % (args.views[i], args.views[j])
+                    resultList[key].append(round(MAPs[i, j], 4))
+                    print_train_str = print_train_str + key + ': %g\t' % train_dict[key]
+
+            train_avg = MAPs.sum() / n_view / (n_view - 1.)
+            train_dict['avg'] = train_avg
+            summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
+            print(print_train_str)
 
             fea, lab = eval(valid_loader, epoch, 'valid')
             if is_eval:
@@ -283,8 +292,8 @@ def main():
                     if i == j:
                         continue
                     MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
-
                     key = '%s2%s' % (args.views[i], args.views[j])
+                    resultList[key].append(round(MAPs[i, j], 4))
                     val_dict[key] = MAPs[i, j]
                     print_val_str = print_val_str + key +': %g\t' % val_dict[key]
 
