@@ -55,7 +55,7 @@ class cross_modal_dataset(data.Dataset):
             doc2vec = False
         elif 'ps' in dataset.lower():
             root_dir = os.path.join(root_dir, 'ps')
-            path = os.path.join(root_dir, 'ps.mat')
+            path = os.path.join(root_dir, 'ps_200.mat')
         else:
             raise Exception('Have no such dataset!')
 
@@ -134,17 +134,17 @@ class cross_modal_dataset(data.Dataset):
             elif 'ps' in dataset.lower():
                 data = sio.loadmat(path)
                 if self.mode == 'train':
-                    train_data = [data['tr_fc6'].astype('float32'),
+                    train_data = [data['tr_fc7'].astype('float32'),
                                   data['tr_text'].astype('float32')]
                     train_label = [data['tr_label'].reshape([-1]).astype('int64'),
                                    data['tr_label'].reshape([-1]).astype('int64')]
                 elif self.mode == 'valid':
-                    train_data = [data['v_fc6'].astype('float32'),
-                                  data['v_text'].astype('float32')]
-                    train_label = [data['v_label'].reshape([-1]).astype('int64'),
-                                   data['v_label'].reshape([-1]).astype('int64')]
+                    train_data = [data['te_fc7'].astype('float32'),
+                                  data['te_text'].astype('float32')]
+                    train_label = [data['te_label'].reshape([-1]).astype('int64'),
+                                   data['te_label'].reshape([-1]).astype('int64')]
                 elif self.mode == 'test':
-                    train_data = [data['te_fc6'].astype('float32'), data['te_text'].astype('float32')]
+                    train_data = [data['te_fc7'].astype('float32'), data['te_text'].astype('float32')]
                     train_label = [data['te_label'].reshape([-1]).astype('int64'),
                                    data['te_label'].reshape([-1]).astype('int64')]
                 else:
@@ -228,7 +228,7 @@ class cross_modal_dataset(data.Dataset):
         noise_label = train_label
         if noise_file is None:
             if noise_mode == 'sym':
-                noise_file = os.path.join(root_dir, 'noise_labels_%g_sym.json' % self.r)
+                noise_file = os.path.join(root_dir, 'noise_labels_%g_sym2.json' % self.r)
             elif noise_mode == 'asym':
                 noise_file = os.path.join(root_dir, 'noise_labels_%g__asym.json' % self.r)
         if self.mode == 'train':
