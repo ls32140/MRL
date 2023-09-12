@@ -43,7 +43,7 @@ class cross_modal_dataset(data.Dataset):
             valid_len = 4000
         elif 'ps' in dataset.lower():
             root_dir = os.path.join(root_dir, 'ps')
-            path = os.path.join(root_dir, 'ps_clip.mat')
+            path = os.path.join(root_dir, 'ps_clip200.mat')
         else:
             raise Exception('Have no such dataset!')
         data = sio.loadmat(path)
