@@ -34,3 +34,5 @@ print(args)
 # --max_epochs 100 --log_name noisylabel_se --loss CE  --lr 0.05 --train_batch_size 50 --beta 1
 # --max_epochs 50 --log_name noisylabel_mce --loss MCE  --lr 0.05 --train_batch_size 50 --beta 0.7 --noisy_ratio 0.2 --data_name wiki
 # --max_epochs 50 --log_name noisylabel_mce --loss MCE  --lr 0.05 --train_batch_size 50 --beta 0.4 --noisy_ratio 0.6 --data_name wiki
+
+# --max_epochs 100 --log_name noisylabel_CE --loss CE --lr 0.0001 --train_batch_size 100 --beta 0.4 --noisy_ratio 0.2 --data_name ps

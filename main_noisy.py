@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import torch
+import torch.nn.functional as F
 
 # import numpy as np
 # import os
@@ -20,6 +21,8 @@ import scipy.spatial
 from src.bmm import BetaMixture1D
 from src.loss import NGCEandMAE
 from src.loss import NCEandRCE
+from src.loss import MeanAbsoluteError
+from src.loss import GeneralizedCrossEntropy
 
 
 best_acc = 0  # best test accuracy
@@ -84,6 +87,12 @@ def main():
         else: # Default to use ImageNet
             multi_models.append(models.__dict__['ImageNet'](input_dim=train_dataset.train_data[v].shape[1], output_dim=args.output_dim).cuda())
 
+    # fusion_model = models.__dict__['SumFusion'](input_dim=train_dataset.train_data[0].shape[1]*2, output_dim=train_dataset.train_data[v].shape[1]).cuda()
+    # fusion_model1 = models.__dict__['SumFusion1'](input_dim=args.output_dim*2, output_dim=args.output_dim).cuda()
+    fusion_model1 = models.__dict__['SumFusion1'](input_dim=args.output_dim*2, output_dim=args.output_dim).cuda()
+    # fusion_model2 = models.__dict__['SumFusion2'](input_dim=train_dataset.train_data[0].shape[1]*2, output_dim=args.output_dim).cuda()
+
+
     C = torch.Tensor(args.output_dim, args.output_dim)
     C = torch.nn.init.orthogonal(C, gain=1)[:, 0: train_dataset.class_num].cuda()
     C.requires_grad = True
@@ -92,6 +101,8 @@ def main():
     embedding.requires_grad = False
 
     parameters = [C]
+    parameters += list(fusion_model1.parameters())
+    # parameters += list(fusion_model2.parameters())
     for v in range(n_view):
         parameters += list(multi_models[v].parameters())
     if args.optimizer == 'SGD':
@@ -118,6 +129,9 @@ def main():
     else:
         raise Exception('No such loss function.')
 
+    mae = MeanAbsoluteError(train_dataset.class_num, 1)
+    gce = GeneralizedCrossEntropy(train_dataset.class_num, 0.7)
+
     summary_writer = SummaryWriter(args.log_dir)
 
     if args.resume:
@@ -134,11 +148,22 @@ def main():
     def set_train():
         for v in range(n_view):
             multi_models[v].train()
+            fusion_model1.train()
+            # fusion_model2.train()
 
     def set_eval():
         for v in range(n_view):
             multi_models[v].eval()
+            fusion_model1.eval()
+            # fusion_model2.eval()
 
+    def kl(fea):
+        inner_product = torch.matmul(fea[0], fea[1].T)
+        Softmax = torch.nn.Softmax(dim=0)
+        prob = Softmax(inner_product)
+        p_prob = torch.diag(prob)
+        MQ_loss = -1 * torch.log(p_prob)
+        return MQ_loss.mean()
     def cross_modal_contrastive_ctriterion(fea, tau=1.):
         batch_size = fea[0].shape[0]
         all_fea = torch.cat(fea)
@@ -146,6 +171,11 @@ def main():
 
         sim = (sim / tau).exp()
         sim = sim - sim.diag().diag()
+
+        # ss = [sim[v * batch_size: (v + 1) * batch_size, v * batch_size: (v + 1) * batch_size] for v in range(n_view)]
+        # tt = [ss[v]-ss[v].diag().diag() for v in range(n_view)]
+        # sim1 = torch.cat(tt)
+
         sim_sum1 = sum([sim[:, v * batch_size: (v + 1) * batch_size] for v in range(n_view)])
         diag1 = torch.cat([sim_sum1[v * batch_size: (v + 1) * batch_size].diag() for v in range(n_view)])
         loss1 = -(diag1 / sim.sum(1)).log().mean()
@@ -155,6 +185,64 @@ def main():
         loss2 = -(diag2 / sim.sum(1)).log().mean()
         return loss1 + loss2
 
+    def contrastive3(fea, tar, selected, c, tau=1.):
+        loss = []
+        for v in range(n_view):
+            sim = fea[v][selected[v]].mm(fea[v][selected[v]].t())
+            sim = (sim / tau).exp()
+            sim = sim - sim.diag().diag()
+
+            dif = tar[v][selected[v]] - tar[v][selected[v]].reshape(-1, 1)
+
+            tarC = torch.arange(train_dataset.class_num).cuda()
+            dif2 = tarC - tar[v][selected[v]].reshape(-1, 1)
+            Cfea = fea[v][selected[v]].mm(C)
+            Cfea = (Cfea / tau).exp()
+            condition11 = dif2 == 0
+            condition22 = dif2 != 0
+            masked1 = torch.masked_fill(Cfea, condition11, value=0) #n
+            masked2 = torch.masked_fill(Cfea, condition22, value=0).sum(1) #p
+
+
+            condition1 = dif == 0
+            condition2 = dif != 0
+            masked_sim1 = torch.masked_fill(sim, condition1, value=0)  # not seem class
+            masked_sim2 = torch.masked_fill(sim, condition2, value=0)  # seem class
+            top_value, top_i = torch.topk(masked_sim2, 1)
+            select_sim = top_value.reshape(1, -1).squeeze()
+
+            # b = pre[masked1].sum(1)
+            # c = pre[masked2].sum(1) / b
+            # c = c[c != 0]
+            # d = -c.log().mean()
+            # loss.append(d)
+
+            b = masked_sim1.sum(1)
+            zero_positions = torch.where(select_sim == 0)
+            values_to_replace = masked2[zero_positions]
+            select_sim[zero_positions] = values_to_replace
+            c = select_sim/b
+            d = -c.log().mean()
+            loss.append(d)
+        return loss[0] + loss[1]
+    def contrastive2(fea, tar, selected, tau=1.):
+        all_fea = torch.cat([fea[v][selected[v]] for v in range(n_view)])
+        all_tar = torch.cat([tar[v][selected[v]] for v in range(n_view)])
+        sim = all_fea.mm(all_fea.t())
+        sim = (sim / tau).exp()
+        sim = sim - sim.diag().diag()
+        dif = all_tar - all_tar.reshape(-1, 1)
+        condition1 = dif == 0
+        condition2 = dif != 0
+        masked_sim1 = torch.masked_fill(sim, condition1, value=0)  # not seem class
+        masked_sim2 = torch.masked_fill(sim, condition2, value=0)  # seem class
+        top_value, top_i = torch.topk(masked_sim2, 1)
+        select_sim = top_value.reshape(1, -1).squeeze()
+        b = masked_sim1.sum(1)
+        c = select_sim / b
+        c = c[c != 0]
+        d = -c.log().mean()
+        return d
     def contrastive(fea, tar, selected, tau=1.):
         loss = []
         for v in range(n_view):
@@ -174,11 +262,14 @@ def main():
             masked_sim2 = torch.masked_fill(sim, condition2, value=0)  # seem class
             top_value, top_i = torch.topk(masked_sim2, 1)
             select_sim = top_value.reshape(1, -1).squeeze()
+
             b = masked_sim1.sum(1)
             c = select_sim/b
             c = c[c != 0]
             d = -c.log().mean()
             loss.append(d)
+            count = torch.sum(select_sim == 0).item()
+            print(count)
         return loss[0] + loss[1]
 
     def train(epoch):
@@ -197,10 +288,25 @@ def main():
 
             for v in range(n_view):
                 multi_models[v].zero_grad()
+                fusion_model1.zero_grad()
+                # fusion_model2.zero_grad()
             optimizer.zero_grad()
 
+            # if epoch >= 4:
+            #     for param_q, param_k0 in zip(fusion_model1.parameters(), multi_models[0].parameters()):
+            #         param_k0.data = param_k0.data * 0.99 + param_q.data * (1. - 0.99)
+            #     for param_q, param_k1 in zip(fusion_model1.parameters(), multi_models[1].parameters()):
+            #         param_k1.data = param_k1.data * 0.99 + param_q.data * (1. - 0.99)
+
+            # fusion_output1 = fusion_model1(batches[0], batches[1])
+            # fusion_output2 = fusion_model2(batches[0], batches[1])
+            # batches = [(0.9 * batches[v] + 0.1 * fusion) for v in range(n_view)]
+            # outputs = [multi_models[v](batches[v]) for v in range(n_view)]
             outputs = [multi_models[v](batches[v]) for v in range(n_view)]
             preds = [outputs[v].mm(C) for v in range(n_view)]
+            # outputs = [multi_models[v]((0.8 * batches[v] + 0.2 * fusion)) for v in range(n_view)]
+
+
 
             # mceloss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
             # losses = [torch.mean(mceloss[v]) for v in range(n_view)]
@@ -229,9 +335,17 @@ def main():
             select_num = int(len(prob_A)*(1-args.noisy_ratio)) #筛选干净的数量
             threshld_A = np.sort(prob_A)[::-1][select_num]
             threshld_B = np.sort(prob_B)[::-1][select_num]
-            pred_A = (prob_A > threshld_A).squeeze()
-            pred_B = (prob_B > threshld_B).squeeze()
+            pred_A = (prob_A >= threshld_A).squeeze()
+            pred_B = (prob_B >= threshld_B).squeeze()
             selected = [pred_A, pred_B]
+
+            # fusion_output = fusion_model1(outputs[0], outputs[1])
+            # fusion_outputs = [fusion_output[selected[0]], fusion_output[selected[1]]]
+            # c_targets = [targets[v][selected[v]] for v in range(n_view)]
+            # c_t = C.T
+            # vector_list = [[c_t[label, :] for label in c_targets[v]] for v in range(n_view)]
+            # vector_list = [torch.stack(vector_list[v]) for v in range(n_view)]
+            # mes_loss = [torch.mean((fusion_outputs[v] - vector_list[v])**2) for v in range(n_view)]
 
             for v in range(n_view):
                 ss = index[selected[v]]
@@ -261,50 +375,53 @@ def main():
 
                 u_size = inputs_u[v].size()[0]
                 x_size = inputs_x[v].size()[0]
+                # lam = 0.5
                 if x_size != 0:
                     index = np.random.permutation(x_size)
-                    # lam = 0.5
                     for i in range(int(u_size)):
                         j = i % x_size
                         inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
                         targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[j]]
 
 
-                # size = inputs_x[v].size()[0]
-                # index = np.random.permutation(size)
-                # lam = 0.2
-                # for i in range(size*2):
-                #     j = i % size
-                #     inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[j], :]
-                #     targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[j]]
-
-                # size = inputs_x[v].size()[0]
-                # index = np.random.permutation(size)
-                # lam = 0.05
-                # for i in range(size):
-                #     inputs_u[v][i, :] = lam * inputs_u[v][i, :] + (1 - lam) * inputs_x[v][index[i], :]
-                #     targets_u[v][i] = lam * targets_u[v][i] + (1 - lam) * targets_x[v][index[i]]
-
-                # all_inputs[v] = torch.cat([inputs_x[v], inputs_u[v]], dim=0).cuda()
-                # all_targets[v] = torch.cat([targets_x[v], targets_u[v]], dim=0).cuda()
-
+            # outputs_x = [multi_models[v](0.8*inputs_x[v]+0.2*fusion[selected[v]]) for v in range(n_view)]
+            # outputs_x = [outputs[v][selected[v]] for v in range(n_view)]
             outputs_x = [multi_models[v](inputs_x[v]) for v in range(n_view)]
             outputs_u = [multi_models[v](inputs_u[v]) for v in range(n_view)]
+
             preds_x = [outputs_x[v].mm(C) for v in range(n_view)]
             preds_u = [outputs_u[v].mm(C) for v in range(n_view)]
             losses1 = [criterion(preds_x[v], targets_x[v]) for v in range(n_view)]
             losses2 = [torch.mean((preds_u[v] - targets_u[v])**2) for v in range(n_view)]
-            loss1 = sum(losses1) + sum(losses2)
+
+            fusion_output1 = fusion_model1(outputs[0], outputs[1])
+            # fusion_output1 = fusion_model1(0.5*batches[0] + 0.5*batches[1])
+            fusion_pred = [fusion_output1.mm(C), fusion_output1.mm(C)]
+            fusion_preds = [fusion_pred[v][selected[v]] for v in range(n_view)]
+            fusion_targets = [targets[v][selected[v]] for v in range(n_view)]
+            fusion_loss = [criterion(fusion_preds[v], fusion_targets[v]) for v in range(n_view)]
+            loss1 = sum(losses2) + sum(fusion_loss) + sum(losses1)
+            # loss1 = sum(losses2) + sum(losses1)
+            # bb = [batches[v].clone() for v in range(n_view) ]
+            # tt = [targets[v].clone() for v in range(n_view) ]
+            # batches2 = mixgen_batch(bb, tt)
+            # outputs2 = [multi_models[v](batches2[v]) for v in range(n_view)]
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
+            # ss = outputs[0].softmax(dim=-1)
+            # klLoss = F.kl_div(outputs[0].softmax(dim=-1).log(), outputs[1].softmax(dim=-1), reduction='batchmean') + F.kl_div(outputs[1].softmax(dim=-1).log(), outputs[0].softmax(dim=-1), reduction='batchmean')
+
             # a = contrastive(outputs, targets, selected, tau=args.tau)
+            # b = contrastive3(outputs, targets, selected, C, tau=args.tau)
             # contrastiveLoss = 0.2 * contrastive(outputs, targets, selected, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
 
             if epoch < 4:
-                loss = loss
+                loss = loss + sum(fusion_loss)
+                # for param_q, param_k0, param_k1 in zip(fusion_model1.parameters(), multi_models[0].parameters(),
+                #                                        multi_models[1].parameters()):
+                #     param_q.data = 0.5 * param_k0.data + 0.5 * param_k1.data
             else:
                 loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
             # loss = args.beta * loss1 + (1. - args.beta) * contrastiveLoss
-
             if epoch >= 0:
                 loss.backward()
                 optimizer.step()
@@ -516,7 +633,7 @@ def mixgen_batch(data, targets, lam=0.5):
 
         target1[i] = lam * target1[i] + (1 - lam) * target1[index[i]]
         target2[i] = lam * target1[i] + (1 - lam) * target1[index[i]]
-    return [image, text], [target1, target2]
+    return [image, text]
 def fx_calc_map_multilabel_k(train, train_labels, test, test_label, k=0, metric='cosine'):
     dist = scipy.spatial.distance.cdist(test, train, metric)
     ord = dist.argsort()
