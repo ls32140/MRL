@@ -105,7 +105,6 @@ def main():
 
     if args.loss == 'CE':
         criterion = torch.nn.CrossEntropyLoss().cuda()
-        criterion_no_mean = torch.nn.CrossEntropyLoss(reduction='none')
     elif args.loss == 'MCE':
         criterion = utils.MeanClusteringError(train_dataset.class_num, None, tau=args.tau).cuda()
         criterion_no_mean = utils.MeanClusteringError(train_dataset.class_num, 1, tau=args.tau).cuda()
@@ -155,30 +154,19 @@ def main():
         loss2 = -(diag2 / sim.sum(1)).log().mean()
         return loss1 + loss2
 
-    def contrastive(fea, tar, selected, tau=1.):
+    def contrastive(fea, tar, tau=1.):
         loss = []
         for v in range(n_view):
-            # sim = fea[v].mm(fea[v].t())
-            # sim = (sim / tau).exp()
-            # sim = sim - sim.diag().diag()
-            # dif = tar[v] - tar[v].reshape(-1, 1)
-
-            sim = fea[v][selected[v]].mm(fea[v][selected[v]].t())
+            sim = fea[v].mm(fea[v].t())
             sim = (sim / tau).exp()
-            sim = sim - sim.diag().diag()
-            dif = tar[v][selected[v]] - tar[v][selected[v]].reshape(-1, 1)
-
+            dif = tar[v] - tar[v].reshape(-1, 1)
             condition1 = dif == 0
             condition2 = dif != 0
             masked_sim1 = torch.masked_fill(sim, condition1, value=0)  # not seem class
             masked_sim2 = torch.masked_fill(sim, condition2, value=0)  # seem class
             top_value, top_i = torch.topk(masked_sim2, 1)
-            select_sim = top_value.reshape(1, -1).squeeze()
-            b = masked_sim1.sum(1)
-            c = select_sim/b
-            c = c[c != 0]
-            d = -c.log().mean()
-            loss.append(d)
+            select_sim = (top_value.sum()).reshape(1, -1).squeeze()
+            loss.append(-(select_sim / masked_sim1.sum(1)).log().mean())
         return loss[0] + loss[1]
 
     def train(epoch):
@@ -208,7 +196,8 @@ def main():
             # loss = sum(losses)
             # loss_nor = (mceloss - mceloss.min()) / (mceloss.max() - mceloss.min())
 
-            ce_loss = [criterion_no_mean(preds[v], targets[v]) for v in range(n_view)]
+            ce_f = torch.nn.CrossEntropyLoss(reduction='none')
+            ce_loss = [ce_f(preds[v], targets[v]) for v in range(n_view)]
             losses = [torch.mean(ce_loss[v]) for v in range(n_view)]
             ce_loss = torch.stack(ce_loss).reshape(1, -1).squeeze()
             loss = sum(losses)
@@ -232,6 +221,34 @@ def main():
             pred_A = (prob_A > threshld_A).squeeze()
             pred_B = (prob_B > threshld_B).squeeze()
             selected = [pred_A, pred_B]
+            probs = [prob_A, prob_B]
+
+            targets_one_hot = [torch.nn.functional.one_hot(targets[v], train_dataset.class_num).float() for v in range(n_view)]
+            prob_A_1 = torch.tensor(prob_A).view(-1, 1).cuda()
+            prob_A_2 = torch.tensor(1-prob_A).view(-1, 1).cuda()
+
+            prob_B_1 = torch.tensor(prob_B).view(-1, 1).cuda()
+            prob_B_2 = torch.tensor(1-prob_B).view(-1, 1).cuda()
+
+            ptu = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
+            condition_a = ~pred_A
+            aa = condition_a & pred_B
+            aa = torch.tensor(aa).cuda()
+            ptu[0] = torch.softmax(preds[0], dim=1) ** (1 / args.T)
+            labled1 = ptu[0] / ptu[0].sum(dim=1, keepdim=True)
+            target_score_a = prob_B_1 * targets_one_hot[1] + prob_B_2 * labled1
+            targets_one_hot[0] = torch.where(aa.unsqueeze(1), target_score_a, targets_one_hot[0])
+
+            condition_b = ~pred_B
+            bb = condition_b & pred_A
+            bb = torch.tensor(bb).cuda()
+            # targets[1] = torch.where(bb, targets[0], targets[1])
+            ptu[1] = torch.softmax(preds[1], dim=1) ** (1 / args.T)
+            labled2 = ptu[1] / ptu[1].sum(dim=1, keepdim=True)
+            target_score_b = prob_A_1 * targets_one_hot[0] + prob_A_2 * labled2
+            targets_one_hot[1] = torch.where(bb.unsqueeze(1), target_score_b, targets_one_hot[1])
+
+
 
             for v in range(n_view):
                 ss = index[selected[v]]
@@ -241,7 +258,7 @@ def main():
             targets_x = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
             inputs_u = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
             targets_u = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
-            ptu = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
+            # ptu = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
             all_inputs = [torch.tensor([], dtype=torch.float32) for i in range(n_view)]
             all_targets = [torch.tensor([], dtype=torch.float32) for v in range(n_view)]
 
@@ -252,11 +269,14 @@ def main():
                 inputs_x[v] = batches[v][selected[v]]
                 targets_x[v] = torch.nn.functional.one_hot(targets[v][selected[v]], train_dataset.class_num).float()
 
+                # prob_x = torch.tensor(probs[v])[selected[v]].view(-1, 1).type(torch.FloatTensor).cuda()
+                # targets_x[v] = prob_x * targets_x[v] + (1 - prob_x) * preds[v][selected[v]]
+
                 inputs_u[v] = batches[v][~selected[v]]
                 # ptu[v] = torch.softmax(preds[v][~selected[v]], dim=1) ** (1 / args.T)  # temparature sharpening
-                ptu[v] = preds[v][~selected[v]] ** (1 / args.T)  # temparature sharpening
-                targets_u[v] = ptu[v] / ptu[v].sum(dim=1, keepdim=True)  # normalize
-                targets_u[v] = targets_u[v].detach()
+                # ptu[v] = preds[v][~selected[v]] ** (1 / args.T)  # temparature sharpening
+                # targets_u[v] = ptu[v] / ptu[v].sum(dim=1, keepdim=True)  # normalize
+                targets_u[v] = targets_one_hot[v][~selected[v]].detach()
                 # targets_u[v] = torch.nn.functional.one_hot(targets[v][~selected[v]], train_dataset.class_num).float()
 
                 u_size = inputs_u[v].size()[0]
@@ -292,12 +312,16 @@ def main():
             outputs_u = [multi_models[v](inputs_u[v]) for v in range(n_view)]
             preds_x = [outputs_x[v].mm(C) for v in range(n_view)]
             preds_u = [outputs_u[v].mm(C) for v in range(n_view)]
+            prob_u = [torch.softmax(preds_u[v], dim=1) for v in range(n_view)]
             losses1 = [criterion(preds_x[v], targets_x[v]) for v in range(n_view)]
-            losses2 = [torch.mean((preds_u[v] - targets_u[v])**2) for v in range(n_view)]
+            # losses2 = [criterion(preds_u[v], targets_u[v]) for v in range(n_view)]
+            losses2 = [torch.mean((prob_u[v] - targets_u[v])**2) for v in range(n_view)]
+            # current = np.clip((epoch - 5) / 30, 0.0, 1.0)
+            # lamb = 10 * float(current)
+            # loss1 = sum(losses1) + lamb * sum(losses2)
             loss1 = sum(losses1) + sum(losses2)
             contrastiveLoss = cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
-            # a = contrastive(outputs, targets, selected, tau=args.tau)
-            # contrastiveLoss = 0.2 * contrastive(outputs, targets, selected, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
+            # contrastiveLoss = 0.2 * contrastive(outputs, targets, tau=args.tau) + cross_modal_contrastive_ctriterion(outputs, tau=args.tau)
 
             if epoch < 4:
                 loss = loss
