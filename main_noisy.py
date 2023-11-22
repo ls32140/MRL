@@ -115,6 +115,9 @@ def main():
 
     summary_writer = SummaryWriter(args.log_dir)
 
+    num_params = sum([p.numel() for p in parameters])
+    print("num_params", num_params)
+
     if args.resume:
         ckpt = torch.load(os.path.join(args.ckpt_dir, args.resume))
         for v in range(n_view):
