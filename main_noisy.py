@@ -4,7 +4,7 @@ import torch
 
 # import numpy as np
 # import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 # import torch
 from utils.config import args
 import torch.optim as optim
@@ -116,6 +116,9 @@ def main():
         raise Exception('No such loss function.')
 
     summary_writer = SummaryWriter(args.log_dir)
+
+    num_params = sum([p.numel() for p in parameters])
+    print("num_params", num_params)
 
     if args.resume:
         ckpt = torch.load(os.path.join(args.ckpt_dir, args.resume))
