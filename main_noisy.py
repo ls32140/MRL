@@ -23,6 +23,13 @@ import torch.nn.functional as F
 best_acc = 0  # best test accuracy
 start_epoch = 0
 
+resultList = {
+    "Img2Txt": [],
+    "Txt2Img": [],
+    "trainImg2Txt": [],
+    "trainTxt2Img": []
+    }
+
 args.log_dir = os.path.join(args.root_dir, 'logs', args.log_name)
 args.ckpt_dir = os.path.join(args.root_dir, 'ckpt', args.ckpt_dir)
 
@@ -276,18 +283,25 @@ def main():
             global best_acc
             set_eval()
             # switch to evaluate mode
-            # fea, lab = eval(train_loader, epoch, 'train')
-            #
-            # MAPs = np.zeros([n_view, n_view])
-            # train_dict = {}
-            # for i in range(n_view):
-            #     for j in range(n_view):
-            #         MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
-            #         train_dict['%s2%s' % (args.views[i], args.views[j])] = MAPs[i, j]
-            #
-            # train_avg = MAPs.sum() / n_view / (n_view - 1.)
-            # train_dict['avg'] = train_avg
-            # summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
+            fea, lab = eval(train_loader, epoch, 'train')
+
+            MAPs = np.zeros([n_view, n_view])
+            train_dict = {}
+            print_train_str = 'train:'
+            for i in range(n_view):
+                for j in range(n_view):
+                    if i == j:
+                        continue
+                    MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
+                    train_dict['train%s2%s' % (args.views[i], args.views[j])] = MAPs[i, j]
+                    key = 'train%s2%s' % (args.views[i], args.views[j])
+                    resultList[key].append(round(MAPs[i, j], 4))
+                    print_train_str = print_train_str + key + ': %g\t' % train_dict[key]
+
+            train_avg = MAPs.sum() / n_view / (n_view - 1.)
+            train_dict['avg'] = train_avg
+            summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
+            print(print_train_str)
 
             fea, lab = eval(valid_loader, epoch, 'valid')
             if is_eval:
@@ -304,6 +318,7 @@ def main():
                         continue
                     MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
                     key = '%s2%s' % (args.views[i], args.views[j])
+                    resultList[key].append(round(MAPs[i, j], 4))
                     val_dict[key] = MAPs[i, j]
                     print_val_str = print_val_str + key +': %g\t' % val_dict[key]
 
@@ -363,9 +378,10 @@ def main():
         lr_schedu.step(epoch)
         test_dict = test(epoch + 1)
         if test_dict['avg'] == best_acc:
-            multi_model_state_dict = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in multi_models]
+            multi_model_state_dict = [{key: value.clone() for (key, value) in m.state_dict().items()} for m in
+                                      multi_models]
             W_best = C.clone()
-
+    print(resultList)
     print('Evaluation on Last Epoch:')
     fea, lab = eval(test_loader, epoch, 'test')
     test_dict, print_str = multiview_test(fea, lab)
@@ -377,7 +393,8 @@ def main():
     test_dict, print_str = multiview_test(fea, lab)
     print(print_str)
     import scipy.io as sio
-    save_dict = dict(**{args.views[v]: fea[v] for v in range(n_view)}, **{args.views[v] + '_lab': lab[v] for v in range(n_view)})
+    save_dict = dict(**{args.views[v]: fea[v] for v in range(n_view)},
+                     **{args.views[v] + '_lab': lab[v] for v in range(n_view)})
     save_dict['C'] = W_best.detach().cpu().numpy()
     sio.savemat('features/%s_%g.mat' % (args.data_name, args.noisy_ratio), save_dict)
 
