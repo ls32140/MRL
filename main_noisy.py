@@ -179,7 +179,7 @@ def main():
                 ap = p[v].cpu().detach().numpy()
                 pp.append(ap.argmax(1))
 
-            reset_rate = (epoch + 1) / 100
+            reset_rate = (epoch + 1) / args.max_epochs
             num_reset = int(reset_rate * batch_size * 2)
             random_indices = np.random.choice(batch_size * 2, size=num_reset, replace=False)
             t = torch.stack(targets).reshape([-1]).cpu().detach().numpy()
@@ -285,23 +285,23 @@ def main():
             # switch to evaluate mode
             fea, lab = eval(train_loader, epoch, 'train')
 
-            MAPs = np.zeros([n_view, n_view])
-            train_dict = {}
-            print_train_str = 'train:'
-            for i in range(n_view):
-                for j in range(n_view):
-                    if i == j:
-                        continue
-                    MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
-                    train_dict['train%s2%s' % (args.views[i], args.views[j])] = MAPs[i, j]
-                    key = 'train%s2%s' % (args.views[i], args.views[j])
-                    resultList[key].append(round(MAPs[i, j], 4))
-                    print_train_str = print_train_str + key + ': %g\t' % train_dict[key]
-
-            train_avg = MAPs.sum() / n_view / (n_view - 1.)
-            train_dict['avg'] = train_avg
-            summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
-            print(print_train_str)
+            # MAPs = np.zeros([n_view, n_view])
+            # train_dict = {}
+            # print_train_str = 'train:'
+            # for i in range(n_view):
+            #     for j in range(n_view):
+            #         if i == j:
+            #             continue
+            #         MAPs[i, j] = fx_calc_map_label(fea[j], lab[j], fea[i], lab[i], k=0, metric='cosine')[0]
+            #         train_dict['train%s2%s' % (args.views[i], args.views[j])] = MAPs[i, j]
+            #         key = 'train%s2%s' % (args.views[i], args.views[j])
+            #         resultList[key].append(round(MAPs[i, j], 4))
+            #         print_train_str = print_train_str + key + ': %g\t' % train_dict[key]
+            #
+            # train_avg = MAPs.sum() / n_view / (n_view - 1.)
+            # train_dict['avg'] = train_avg
+            # summary_writer.add_scalars('Retrieval/train', train_dict, epoch)
+            # print(print_train_str)
 
             fea, lab = eval(valid_loader, epoch, 'valid')
             if is_eval:
