@@ -67,14 +67,14 @@ class cross_modal_dataset(data.Dataset):
         noise_label = train_label
         if noise_file is None:
             if noise_mode == 'sym':
-                noise_file = os.path.join(root_dir, 'noise_labels_%g_sym.json' % self.r)
+                noise_file = os.path.join(root_dir, 'noise_labels_%g_sym_onelabel.json' % self.r)
             elif noise_mode == 'asym':
-                noise_file = os.path.join(root_dir, 'noise_labels_%g__asym.json' % self.r)
+                noise_file = os.path.join(root_dir, 'noise_labels_%g_asym.json' % self.r)
         if self.mode == 'train':
             if os.path.exists(noise_file):
                 noise_label = json.load(open(noise_file, "r"))
                 self.class_num = np.unique(noise_label).shape[0]
-            else:    #inject noise
+            else:  # inject noise
                 noise_label = []
                 classes = np.unique(train_label[0])
                 class_num = classes.shape[0]
@@ -85,24 +85,24 @@ class cross_modal_dataset(data.Dataset):
                 half_num = int(class_num // 2)
                 for i in range(half_num):
                     self.transition[inx[i]] = int(inx[half_num + i])
-                for v in range(len(train_data)):
-                    noise_label_tmp = []
-                    data_num = train_data[v].shape[0]
-                    idx = list(range(data_num))
-                    random.shuffle(idx)
-                    num_noise = int(self.r * data_num)
-                    noise_idx = idx[:num_noise]
-                    for i in range(data_num):
-                        if i in noise_idx:
-                            if noise_mode == 'sym':
-                                noiselabel = int(random.randint(0, class_num-1))
-                                noise_label_tmp.append(noiselabel)
-                            elif noise_mode == 'asym':
-                                noiselabel = self.transition[train_label[v][i]]
-                                noise_label_tmp.append(noiselabel)
-                        else:
-                            noise_label_tmp.append(int(train_label[v][i]))
-                    noise_label.append(noise_label_tmp)
+                noise_label_tmp = []
+                data_num = train_data[0].shape[0]
+                idx = list(range(data_num))
+                random.shuffle(idx)
+                num_noise = int(self.r * data_num)
+                noise_idx = idx[:num_noise]
+                for i in range(data_num):
+                    if i in noise_idx:
+                        if noise_mode == 'sym':
+                            noiselabel = int(random.randint(0, class_num - 1))
+                            noise_label_tmp.append(noiselabel)
+                        elif noise_mode == 'asym':
+                            noiselabel = self.transition[train_label[0][i]]
+                            noise_label_tmp.append(noiselabel)
+                    else:
+                        noise_label_tmp.append(int(train_label[0][i]))
+                noise_label.append(noise_label_tmp)
+                noise_label.append(noise_label_tmp)
                 # print("save noisy labels to %s ..." % noise_file)
                 json.dump(noise_label, open(noise_file, "w"))
 
